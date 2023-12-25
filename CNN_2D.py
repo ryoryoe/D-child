@@ -24,10 +24,10 @@ from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 
 #hyper_parameter
-batch = 1
+batch = 36
 types ="sim" #beads or sim or rhodamine
 learning = 1 #1=learning 
-epochs = 30
+epochs = 500
 dmax = 330
 dmin = 230
 model_name = "CNN"
@@ -37,26 +37,26 @@ model_path = mymodule.Simple2DCNN()
 weight_save_by_epoch = "off"
 
 #path 
-weight_path = "CNN_base_correct"
+weight_path = "CNN_2D"
 
-train_path = "data_train/Time=1_test"
-train_eval_path = "data_train/Time=20_test"
-test_path = "data_test/Time=1_test"
-test_eval_path = "data_test/Time=20_test"
+train_path = "../data_train/Time=1"
+train_eval_path = "../data_train/Time=20"
+test_path = "../data_test/Time=1"
+test_eval_path = "../data_test/Time=20"
 
 estimate_path = f"{test_path}"
 estimate_eval_path = f"{test_eval_path}"
 
 output_path = f"{weight_path}"
 output_evaluate_path = f"{weight_path}"
-device = "cpu"
-#device = "cuda:0"
-#file_maker(f"weight_by_epoch/{weight_path}")
-#file_maker(f"result/{weight_path}")
+#device = "cpu"
+device = "cuda:0"
+file_maker(f"../weight_by_epoch/{weight_path}")
+file_maker(f"../result/{weight_path}")
 
 if learning == 1:
     print("train_data_preprocessing_start")
-    train_x,train_y = Preprocessing(train_path,train_eval_path,dmax,dmin)
+    train_x,train_y,_ = Preprocessing(train_path,train_eval_path,dmax,dmin)
     #sys.exit()
     #train_x = np.reshape(train_x,[len(train_x),2,100,100])
     #train_y = np.reshape(train_y,[len(train_y),2,100,100]) 
@@ -73,7 +73,7 @@ if learning == 1:
     trainloader = torch.utils.data.DataLoader(trainset,batch_size = batch, shuffle = True, num_workers = 2, drop_last=True)
     
     print("test_data_preprocessing_start")
-    test_x,test_y = Preprocessing(test_path,test_eval_path,dmax,dmin)
+    test_x,test_y,_ = Preprocessing(test_path,test_eval_path,dmax,dmin)
     #test_x = np.reshape(test_x,[len(test_x),2,100,100])
     #test_y = np.reshape(test_y,[len(test_y),2,100,100])
     test_x = torch.tensor(test_x, dtype=torch.float32)
@@ -82,7 +82,7 @@ if learning == 1:
     testloader = torch.utils.data.DataLoader(testset,batch_size = batch, shuffle = True, num_workers = 2, drop_last=True)
 
 print("evaluate_data_preprocessing_start")
-evaluate_x,evaluate_y = Preprocessing(estimate_path,estimate_eval_path,dmax,dmin)
+evaluate_x,evaluate_y,file_names = Preprocessing(estimate_path,estimate_eval_path,dmax,dmin)
 #evaluate_x = np.reshape(evaluate_x,[len(evaluate_x),2,100,100])
 #evaluate_y = np.reshape(evaluate_y,[len(evaluate_y),2,100,100])
 evalate_y_copy = np.copy(evaluate_y)
@@ -156,13 +156,12 @@ if learning == 1:
     plt.xlabel("Epoch")
     plt.ylabel("Loss function")
     plt.legend()
-    plt.savefig(f"result/{weight_path}/loss_{output_path}.pdf")
-    plt.show()
-    torch.save(model,f"result/{weight_path}/weight_{weight_path}.pth")
+    plt.savefig(f"../result/{weight_path}/loss_{output_path}.pdf")
+    torch.save(model,f"../result/{weight_path}/weight_{weight_path}.pth")
 
 #evaluate_step
 print("evaluate_step_start")
-weight_eval_path = f"result/{weight_path}/weight_{weight_path}.pth"
+weight_eval_path = f"../result/{weight_path}/weight_{weight_path}.pth"
 model = torch.load(weight_eval_path)
 model = model.to(device)
 model.eval()
@@ -174,48 +173,21 @@ print("estimate_start")
 eval_loss = 0
 loss_list = []
 #criterion = nn.MSELoss()
-criterion = nn.MSELoss(reduction="none")
+criterion = nn.MSELoss()
 count_loss = 0
 output_list = []
 for data,evaly in evalloader:
         data = data.to(device)
         evaly = evaly.to(device)
-        print(f"len(evaly)={evaly.shape},len(data)={data.shape}") 
         p = model(data)
         p_output = p.detach().cpu().numpy()
         output_list.append(p_output)
-        loss = criterion(evaly,p)
-        print(f"len(evaly)={evaly.shape},len(data_predict)={p_output.shape}") 
-        #sys.exit()
-        #loss_list.append(loss.item())
-        for i in range(len(loss)):
-            loss_numpy = loss[i].detach().cpu().numpy()
-            eval_loss += np.mean(loss_numpy)
-            loss_list.append(np.mean(loss_numpy))
-            count_loss += 1
-            print(f"{i+1}_end")
-eval_loss /= count_loss
-loss_list = np.asarray(loss_list)
-loss_list = loss_list.astype(float)
-#loss_list = np.reshape(loss_list,[-1])
-print(f"len(loss_list)={len(loss_list)}")
 output_list = np.array(output_list)
 output_list = np.reshape(output_list,[len(evaluate_x),2,-1])
 print(output_list.shape)
+file_maker(f"../result/{weight_path}/estimate_result")
 for i in range(len(output_list)):
     out = output_list[i]
     out = out.T
-    pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"estimate_test_{i:0=4}.csv", index=False)
-    """with open(f"result/{weight_path}/estimate_{i+1}_{output_evaluate_path}.csv", "w") as w:
-            writer = csv.writer(w)
-            writer.writerow(["X Velocity","Y Velocity"])
-            for j in range(len(out)):
-                    x,y=out[j]
-                    writer.writerow([x,y])"""
+    pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{weight_path}/estimate_result/estimate_{file_names[i]}.csv", index=False)
 
-with open(f"result/{weight_path}/results_test_{output_evaluate_path}.csv", "w") as w:
-        writer = csv.writer(w)
-        writer.writerow([eval_loss])
-        for i in range(len(loss_list)):
-                x=loss_list[i]
-                writer.writerow([x])

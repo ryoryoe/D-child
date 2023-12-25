@@ -93,7 +93,7 @@ def Preprocessing(inputname,input_evalname, dmax, dmin):
     input_path = sorted(glob.glob(inputname + "/*.csv"), key=natural_keys)
     eval_path = sorted(glob.glob(input_evalname + "/*.csv"), key=natural_keys)
     num_cores = os.cpu_count()
-
+    file_names = file_name_maker(f"{inputname}")
     # ProcessPoolExecutorを使用して各ファイルを並列処理
     with ProcessPoolExecutor(max_workers=num_cores) as executor:
         results = list(tqdm(executor.map(process_file, input_path,eval_path, [dmax] * len(input_path), [dmin] * len(input_path)),total=len(input_path)))
@@ -129,7 +129,8 @@ def Preprocessing(inputname,input_evalname, dmax, dmin):
     #print(f"after_eval={len(evals)}") 
     train = np.reshape(train, [-1,100,100,2]).transpose(0,3,1, 2)
     evals = np.reshape(evals, [-1,100,100,2]).transpose(0,3,1,2)
-    return train, evals
+    file_names = [item for idx, item in enumerate(file_names) if idx not in indices_to_remove]
+    return train, evals,file_names
 
         
 
