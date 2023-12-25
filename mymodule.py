@@ -66,7 +66,7 @@ def file_name_maker(input_path):
 def process_file(path, eval_path,dmax, dmin):
     df = pd.read_csv(path)
     df = df.values
-    df = df.astype(float)
+    df = df.astype(float)   
     """if np.isnan(df).any():
         print(path)
         nan_indices = np.where(np.isnan(df))[0]

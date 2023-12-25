@@ -24,9 +24,9 @@ from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 
 #hyper_parameter
-batch = 36
+batch = 10
 types ="sim" #beads or sim or rhodamine
-learning = 1 #1=learning 
+learning = 0 #1=learning 
 epochs = 500
 dmax = 330
 dmin = 230
@@ -44,8 +44,8 @@ train_eval_path = "../data_train/Time=20"
 test_path = "../data_test/Time=1"
 test_eval_path = "../data_test/Time=20"
 
-estimate_path = f"{test_path}"
-estimate_eval_path = f"{test_eval_path}"
+estimate_path = f"{train_path}"
+estimate_eval_path = f"{train_eval_path}"
 
 output_path = f"{weight_path}"
 output_evaluate_path = f"{weight_path}"
@@ -57,25 +57,14 @@ file_maker(f"../result/{weight_path}")
 if learning == 1:
     print("train_data_preprocessing_start")
     train_x,train_y,_ = Preprocessing(train_path,train_eval_path,dmax,dmin)
-    #sys.exit()
-    #train_x = np.reshape(train_x,[len(train_x),2,100,100])
-    #train_y = np.reshape(train_y,[len(train_y),2,100,100]) 
-    # NaN値が存在するインデックスを特定
     nan_indices = np.where(np.isnan(train_x))[0]
     
-    print(f"nan={nan_indices.tolist()}")
-    #print(f"train_x={train_x.shape}")
-    #print(f"train_y={train_y.shape}")
-    #sys.exit()
     train_x = torch.tensor(train_x, dtype=torch.float32)
     train_y = torch.tensor(train_y, dtype=torch.float32)
     trainset = torch.utils.data.TensorDataset(train_x,train_y)
     trainloader = torch.utils.data.DataLoader(trainset,batch_size = batch, shuffle = True, num_workers = 2, drop_last=True)
     
-    print("test_data_preprocessing_start")
     test_x,test_y,_ = Preprocessing(test_path,test_eval_path,dmax,dmin)
-    #test_x = np.reshape(test_x,[len(test_x),2,100,100])
-    #test_y = np.reshape(test_y,[len(test_y),2,100,100])
     test_x = torch.tensor(test_x, dtype=torch.float32)
     test_y = torch.tensor(test_y, dtype=torch.float32)
     testset = torch.utils.data.TensorDataset(test_x,test_y)
@@ -83,8 +72,6 @@ if learning == 1:
 
 print("evaluate_data_preprocessing_start")
 evaluate_x,evaluate_y,file_names = Preprocessing(estimate_path,estimate_eval_path,dmax,dmin)
-#evaluate_x = np.reshape(evaluate_x,[len(evaluate_x),2,100,100])
-#evaluate_y = np.reshape(evaluate_y,[len(evaluate_y),2,100,100])
 evalate_y_copy = np.copy(evaluate_y)
 evaluate_y_copy = torch.tensor(evaluate_y, dtype=torch.float32)
 evaluate_x = torch.tensor(evaluate_x, dtype=torch.float32)
