@@ -67,26 +67,18 @@ def process_file(path, eval_path,dmax, dmin):
     df = pd.read_csv(path)
     df = df.values
     df = df.astype(float)   
-    """if np.isnan(df).any():
-        print(path)
-        nan_indices = np.where(np.isnan(df))[0]
-        print(nan_indices)
-        sys.exit()"""
-    #df = np.reshape(df, [-1,2])
     df_eval = pd.read_csv(eval_path)
     df_eval = df_eval.values
     df_eval = df_eval.astype(float)
-    """if np.isnan(df_eval).any():
-        print(f"eval{eval_path}")
-        nan_indices = np.where(np.isnan(df_eval))[0]
-        print(nan_indices)
-        sys.exit()"""
-    #df_eval = np.reshape(df_eval, [-1,2])
-    """avg = np.mean(df)
+    avg = np.mean(df)
     std = np.std(df)
-    df -= avg
-    df /= std"""
-    return df,df_eval
+    avg_eval = np.mean(df_eval)
+    std_eval = np.std(df_eval)
+    #df -= avg
+    #df /= std
+    #df_eval -=avg_eval
+    #df_eval /= std_eval
+    return df,df_eval,avg,std
 
 # 並列処理を実装するためのPreprocessing関数
 def Preprocessing(inputname,input_evalname, dmax, dmin):
@@ -98,9 +90,11 @@ def Preprocessing(inputname,input_evalname, dmax, dmin):
     with ProcessPoolExecutor(max_workers=num_cores) as executor:
         results = list(tqdm(executor.map(process_file, input_path,eval_path, [dmax] * len(input_path), [dmin] * len(input_path)),total=len(input_path)))
     # 結果を統合
-    train,evals = zip(*results)
+    train,evals,avg,std = zip(*results)
     train = np.asarray(train, dtype=float)
     evals = np.asarray(evals, dtype=float)
+    avg = np.asarray(avg,dtype=float)
+    std = np.asarray(std,dtype=float)
     """train = []
     evals = []
     for index in range(len(input_path)):
@@ -124,13 +118,15 @@ def Preprocessing(inputname,input_evalname, dmax, dmin):
     indices_to_remove = np.sort(indices_to_remove)
     train = np.delete(train,indices_to_remove,axis=0)
     evals = np.delete(evals,indices_to_remove,axis=0)
+    avg = np.delete(avg,indices_to_remove,axis=0)
+    std = np.delete(std,indices_to_remove,axis=0)
     print(f"delete_index={indices_to_remove}")
     #print(f"after_train={len(train)}")
     #print(f"after_eval={len(evals)}") 
     train = np.reshape(train, [-1,100,100,2]).transpose(0,3,1, 2)
     evals = np.reshape(evals, [-1,100,100,2]).transpose(0,3,1,2)
     file_names = [item for idx, item in enumerate(file_names) if idx not in indices_to_remove]
-    return train, evals,file_names
+    return train, evals,file_names,avg,std
 
         
 
@@ -142,6 +138,76 @@ def natural_keys(text):
 #---------------------------------------------------
 
 #class
+class Complicated2DCNN(nn.Module):
+    def __init__(self):
+        super(Complicated2DCNN, self).__init__()
+
+        # Decoder
+        self.upsample = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)  # Upsampling
+        self.dropout = nn.Dropout(0.25)  
+        
+        self.conv1 = nn.Conv2d(2, 8,kernel_size=3, stride=1,padding=1)
+        self.bn1 = nn.BatchNorm2d(8)
+        self.conv2 = nn.Conv2d(8, 16,kernel_size=6, stride=1,padding=3)
+        self.bn2 = nn.BatchNorm2d(16)
+        self.conv3 = nn.Conv2d(16,64,kernel_size=6, stride=1,padding=3)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.gap = nn.AdaptiveAvgPool1d(1)
+        self.conv4 = nn.Conv2d(64,128,kernel_size=6, stride=1,padding=3)
+        self.bn4 = nn.BatchNorm2d(128)
+        self.conv5 = nn.Conv2d(128,256,kernel_size=6,stride=1,padding=3)
+        self.bn5= nn.BatchNorm2d(256)
+        self.conv6 = nn.Conv2d(256, 128, kernel_size=6, padding=3)
+        self.conv7 = nn.Conv2d(128, 64, kernel_size=6, padding=3)
+        self.conv8 = nn.Conv2d(64, 16, kernel_size=6, padding=3)
+        self.conv9 = nn.Conv2d(16, 2, kernel_size=3, padding=1)  # Output channels = 2 to match input dimensions
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool2d(2, 2)  # Downsampling
+
+    def forward(self, x):
+        # Encoding path
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.upsample(x)  # Upsample
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.conv4(x)
+        x = self.bn4(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.upsample(x)  # Upsample
+        x = self.conv5(x)
+        x = self.bn5(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.conv6(x)
+        x = self.bn4(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.upsample(x)  # Upsample
+        x = self.conv7(x)
+        x = self.bn3(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.conv8(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = self.upsample(x)  # Upsample
+        x = self.dropout(x)
+        x = self.conv9(x)
+        
+        #x = self.gap(x)
+        return x
+
 class Simple2DCNN(nn.Module):
     def __init__(self):
         super(Simple2DCNN, self).__init__()
