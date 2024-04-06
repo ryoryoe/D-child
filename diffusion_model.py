@@ -122,15 +122,15 @@ def ddpm_train(params):
         train_x, train_y = train_x[:params.cut_size], train_y[:params.cut_size]
         trainset = torch.utils.data.TensorDataset(train_x,train_y)
         # データセットのサイズを計算
-        dataset_size = len(trainset)
-        test_size = int(dataset_size * params.rate)  # データセットの10%をテストデータとして使用
-        train_size = dataset_size - test_size  # 残りを訓練データとして使用
+        #dataset_size = len(trainset)
+        #test_size = int(dataset_size * params.rate)  # データセットの10%をテストデータとして使用
+        #train_size = dataset_size - test_size  # 残りを訓練データとして使用
         
         # データセットをランダムに分割
-        train_dataset, test_dataset = random_split(trainset, [train_size, test_size])
+        #train_dataset, test_dataset = random_split(trainset, [train_size, test_size])
         
-        dataloader = torch.utils.data.DataLoader(train_dataset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
-        testloader = torch.utils.data.DataLoader(test_dataset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
+        dataloader = torch.utils.data.DataLoader(trainset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
+        #testloader = torch.utils.data.DataLoader(test_dataset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
     eval_x,eval_y,file_names_estimate,avg_list,std_list = Preprocessing_standard(estimate_path,estimate_eval_path,params.width,params.standard,params.cut)
     eval_x = torch.tensor(eval_x, dtype=torch.float32)
     eval_y = torch.tensor(eval_y, dtype=torch.float32)
@@ -165,14 +165,14 @@ def ddpm_train(params):
                 xt, t, noise = ddpm.diffusion_process(x)
                 # モデルによる予測〜誤差逆伝播
                 out = model(xt, t)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
-                loss = loss_fn(y, out)#ノイズと予測したノイズの誤差を計算
+                loss = loss_fn(noise, out)#ノイズと予測したノイズの誤差を計算
                 train_loss += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 iter_bar.set_postfix({"loss=": f"{loss.item():.2e}"})
 
-            # テストデータでの損失を計算
+            """# テストデータでの損失を計算
             model.eval()
             for test_counter,(inputs,labels) in enumerate(testloader):
                 inputs,labels = inputs.to(device),labels.to(device)
@@ -180,12 +180,13 @@ def ddpm_train(params):
                 xt, t, noise = ddpm.diffusion_process(inputs)
                 out = model(xt, t)
                 loss = loss_fn(labels,out)
-                test_loss += loss.item()
-            avg_train_loss = train_loss/len(train_dataset)
-            avg_test_loss = test_loss/len(test_dataset)
+                test_loss += loss.item()"""
+            avg_train_loss = train_loss/(len(train_x)//params.batch_size)
+            #avg_test_loss = test_loss/len(test_dataset)
             loss_list.append(avg_train_loss)
-            loss_list_test.append(avg_test_loss)
-            epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}", "test_loss": f"{avg_test_loss:.2e}"})
+            #loss_list_test.append(avg_test_loss)
+            epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}"})
+            #epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}", "test_loss": f"{avg_test_loss:.2e}"})
 
         fig=plt.figure()
         plt.plot(loss_list,label='valid', lw=2, c='b')
@@ -251,10 +252,10 @@ class HyperParameters:
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
     output_path: str = "diffusion_model_0222_T=20_cut_under0.5" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
-    train_file_path = "train_data_ver10" #学習データのフォルダ
-    train_path: str = f"../{train_file_path}/Time=5" #学習データ
+    train_file_path = "train_data_ver7" #学習データのフォルダ
+    train_path: str = f"../{train_file_path}/Time=20" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
-    test_path: str = f"../{file_path}/Time=5" #推定に使うデータ
+    test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
     test_eval_path: str  = f"../{file_path}/Time=20" #推定に使うデータ(意味ない)
     weight_eval_path = f"../result/{output_path}/weight_{output_path}.pth" #学習済みモデルの名前
     
