@@ -129,6 +129,7 @@ def ddpm_train(params):
              vy = torch.cat([a,b])
         train_x, train_y,vx,vy = train_x[:params.cut_size], train_y[:params.cut_size],vx[:params.cut_size],vy[:params.cut_size]
         trainset = torch.utils.data.TensorDataset(train_x,train_y,vx,vy)
+        #print(trainset.shape) 
         # データセットのサイズを計算
         #dataset_size = len(trainset)
         #test_size = int(dataset_size * params.rate)  # データセットの10%をテストデータとして使用
@@ -150,8 +151,8 @@ def ddpm_train(params):
     ddpm = DDPM(params.time_steps, device)
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
-        #model = UNet(params.image_ch, params.image_ch).to(device)
-        model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
+        model = UNet(params.image_ch, params.image_ch).to(device)
+        #model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
         loss_fn = torch.nn.MSELoss()
 
@@ -180,7 +181,8 @@ def ddpm_train(params):
                 # xにノイズを加えて学習データを作成する
                 xt, t, noise = ddpm.diffusion_process(x)
                 # モデルによる予測〜誤差逆伝播
-                out = model(xt, t,v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                #out = model(xt, t,v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                out = model(xt, t)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
                 loss = loss_fn(noise, out)#ノイズと予測したノイズの誤差を計算
                 train_loss += loss.item()
                 optimizer.zero_grad()
@@ -201,7 +203,7 @@ def ddpm_train(params):
             avg_test_loss = test_loss/len(test_dataset)
             loss_list.append(avg_train_loss)
             loss_list_test.append(avg_test_loss)"""
-            avg_train_loss = train_loss/len(trainset[0])
+            avg_train_loss = train_loss/(len(train_x)//params.batch_size)
             loss_list.append(avg_train_loss)
             epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}"})
 
@@ -271,9 +273,9 @@ class HyperParameters:
     output_path: str = "diffusion_model_0406_test" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver7" #学習データのフォルダ
-    train_path: str = f"../{train_file_path}/Time=5" #学習データ
+    train_path: str = f"../{train_file_path}/Time=20" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
-    test_path: str = f"../{file_path}/Time=5" #推定に使うデータ
+    test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
     test_eval_path: str  = f"../{file_path}/Time=20" #推定に使うデータ(意味ない)
     weight_eval_path = f"../result/{output_path}/weight_{output_path}.pth" #学習済みモデルの名前
     

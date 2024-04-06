@@ -321,29 +321,29 @@ class conditional_diffusion_0406(nn.Module):
 
     def unet_forwad(self, x, t,v):#tはノイズを何回加えたかを表す
         #print(f"{v.shape=}")
-        v1 = self.linear2(v).view(-1,2,32,32)
-        x += v1 
+        #v1 = self.linear2(v).view(-1,2,32,32)
+        #x += v1 
         x0 = x
         #print(f"{x.shape=}")
         x1 = self.down1(x)
         x1 = self.sa64(x1)
-        v2 = self.linear64(v).view(-1,64,32,32)
-        x1 += v2
+        #v2 = self.linear64(v).view(-1,64,32,32)
+        #x1 += v2
         #print(f"{x1.shape=}")
         x2 = self.down2(x1, t)
         x2 = self.sa128(x2)
-        v3 = self.linear128(v).view(-1,128,16,16)
-        x2 += v3
+        #v3 = self.linear128(v).view(-1,128,16,16)
+        #x2 += v3
         #print(f"{x2.shape=}")
         x3 = self.down3(x2, t)
         x3 = self.sa256(x3)
-        v4 = self.linear256(v).view(-1,256,8,8)
-        x3 += v4
+        #v4 = self.linear256(v).view(-1,256,8,8)
+        #x3 += v4
         #print(f"{x3.shape=}")
         x4 = self.down4(x3, t)
         x4 = self.sa512(x4)
-        v5 = self.linear512(v).view(-1,512,4,4)
-        x4 += v5
+        #v5 = self.linear512(v).view(-1,512,4,4)
+        #x4 += v5
         #print(f"{x4.shape=}")
         #x4 = self.bot1(x4)
         #if not self.remove_deep_conv:
@@ -351,20 +351,21 @@ class conditional_diffusion_0406(nn.Module):
         #x4 = self.bot3(x4)
         x = self.up1(x4, x3, t)
         x = self.sa256(x)
-        v6 = self.linear256(v).view(-1,256,8,8)
-        x += v6
+        #v6 = self.linear256(v).view(-1,256,8,8)
+        #x += v6
         #print(f"dec_256_{x.shape=}")
         x = self.up2(x, x3, t)
         x = self.sa128(x)
-        v6 = self.linear128(v).view(-1,128,16,16)
-        x += v6
+        #v6 = self.linear128(v).view(-1,128,16,16)
+        #x += v6
         x = self.up3(x, x2, t)
         x = self.sa64(x)
-        v7 = self.linear64(v).view(-1,64,32,32)
-        x += v7
+        #v7 = self.linear64(v).view(-1,64,32,32)
+        #x += v7
         output = self.up4(x)
-        v8 = self.linear2(v).view(-1,2,32,32)
-        output = output + x0 + v8
+        output = output + x0
+        #v8 = self.linear2(v).view(-1,2,32,32)
+        #output = output + x0 + v8
         return output
 
     def forward(self, x, t,v):
