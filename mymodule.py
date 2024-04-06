@@ -31,10 +31,21 @@ import torch.nn.functional as F
 hidden_dim = 64
 lstm_input = 256
 
-batch = 64
+batch = 128
 #--------------------------------------------------
 #function
 #--------------------------------------------------
+
+def sort_and_combine_strings(input_array):
+    a = []
+    b = []
+    for string in input_array:
+        if not '-' in string:
+            a.append(string)
+        if '-' in string:
+            b.append(string)
+    file_names = a + b
+    return file_names
 
 def data_to_csv(path,header_rule=None,end_cut=0,usecol=0):
     if header_rule:
@@ -80,12 +91,33 @@ def process_file(path, eval_path,dmax, dmin):
     #df_eval /= std_eval
     return df,df_eval,avg,std
 
-# 並列処理を実装するためのPreprocessing関数
-def Preprocessing(inputname,input_evalname, dmax, dmin):
+def round_to_significant_digits(arr, digits=3):
+    """
+    配列の各要素を指定された有効数字で丸めます。
+
+    :param arr: NumPy配列。
+    :param digits: 丸める有効数字の桁数。
+    :return: 有効数字で丸められた配列。
+    """
+    # ゼロチェック
+    arr_nonzero = np.where(arr == 0, 1, arr)
+
+    # 指数を計算
+    magnitude = np.power(10, digits - np.ceil(np.log10(np.abs(arr_nonzero))))
+
+    # 丸め処理
+    return np.round(arr * magnitude) / magnitude
+
+# サンプル配列
+
+
+# 有効数字3桁で丸める
+def Preprocessing(inputname,input_evalname, dmax, dmin,width):
     input_path = sorted(glob.glob(inputname + "/*.csv"), key=natural_keys)
     eval_path = sorted(glob.glob(input_evalname + "/*.csv"), key=natural_keys)
     num_cores = os.cpu_count()
     file_names = file_name_maker(f"{inputname}")
+    file_names = sort_and_combine_strings(file_names)
     # ProcessPoolExecutorを使用して各ファイルを並列処理
     with ProcessPoolExecutor(max_workers=num_cores) as executor:
         results = list(tqdm(executor.map(process_file, input_path,eval_path, [dmax] * len(input_path), [dmin] * len(input_path)),total=len(input_path)))
@@ -93,6 +125,9 @@ def Preprocessing(inputname,input_evalname, dmax, dmin):
     train,evals,avg,std = zip(*results)
     train = np.asarray(train, dtype=float)
     evals = np.asarray(evals, dtype=float)
+    #train = round_to_significant_digits(train, digits=4)# 並列処理を実装するためのPreprocessing関数
+    #evals = round_to_significant_digits(evals, digits=4)# 並列処理を実装するためのPreprocessing関数
+    #print(f"{train[:5]=}")
     avg = np.asarray(avg,dtype=float)
     std = np.asarray(std,dtype=float)
     """train = []
@@ -104,8 +139,10 @@ def Preprocessing(inputname,input_evalname, dmax, dmin):
     train = np.asarray(train)
     evals = np.asarray(evals)"""
     # 最終的なデータセットの形状を調整
-    train = np.reshape(train, [len(input_path),10000,2])
-    evals = np.reshape(evals, [len(input_path),10000,2])
+    train = np.reshape(train, [len(train),width*width,2])
+    evals = np.reshape(evals, [len(evals),width*width,2])
+    evals = evals[:len(train)]
+    file_names = file_names[:len(train)]
     #print(f"before_train={len(train)}")
     #print(f"before_eval={len(evals)}")
     #nan_indices = np.any(np.isnan(array), axis=(1, 2))
@@ -121,12 +158,36 @@ def Preprocessing(inputname,input_evalname, dmax, dmin):
     avg = np.delete(avg,indices_to_remove,axis=0)
     std = np.delete(std,indices_to_remove,axis=0)
     print(f"delete_index={indices_to_remove}")
+    print(f"len(delete_index)={len(indices_to_remove)}")
     #print(f"after_train={len(train)}")
     #print(f"after_eval={len(evals)}") 
-    train = np.reshape(train, [-1,100,100,2]).transpose(0,3,1, 2)
-    evals = np.reshape(evals, [-1,100,100,2]).transpose(0,3,1,2)
-    file_names = [item for idx, item in enumerate(file_names) if idx not in indices_to_remove]
-    return train, evals,file_names,avg,std
+    train = np.reshape(train, [-1,width,width,2]).transpose(0,3,1, 2)
+    evals = np.reshape(evals, [-1,width,width,2]).transpose(0,3,1,2)
+    # リストをNumPy配列に変換
+    np_array = np.array(file_names)
+
+    # 削除するインデックス以外を選択してNumPy配列として格納
+    filtered_np_array = np.delete(np_array, indices_to_remove)
+
+    #   NumPy配列をリストに変換して出力
+    file_names_delete = filtered_np_array.tolist()
+
+    """file_names_delete=[]
+    for i in range(len(file_names)):
+        if not i in indices_to_remove:
+            file_names_delete.append(file_names[i])
+            if i<=10:
+                print(f"in_file_names[{i}]:{file_names[i]}")
+        else:
+            if i<=10:
+                print(f"out_file_names[{i}]:{file_names[i]=}")
+        if i==5:
+            print(f"{file_names_delete=}")
+            sys.exit()"""
+    #file_names_delete = np.delete(file_names,indices_to_remove,axis=0)
+    #file_names_delete = [item for idx, item in enumerate(file_names) if idx not in indices_to_remove]
+    #file_names_delete = file_names
+    return train, evals,file_names_delete,avg,std
 
         
 
@@ -138,6 +199,93 @@ def natural_keys(text):
 #---------------------------------------------------
 
 #class
+class CNN_2D_mask_0114(nn.Module):
+    def __init__(self):
+        super(CNN_2D_mask_0114, self).__init__()
+        # Encoder
+        self.conv1 = nn.Conv2d(2, 16, kernel_size=9, padding="same")  # Input channels = 2 (x, y velocities), output channels = 16
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=9, padding="same")  # Increase channels
+        self.pool = nn.MaxPool2d(2, 2)  # Downsampling
+
+        # Decoder
+        self.conv3 = nn.Conv2d(32, 16, kernel_size=9, padding="same")
+        self.conv4 = nn.Conv2d(16, 2, kernel_size=9, padding="same")  # Output channels = 2 to match input dimensions
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)  # Upsampling
+        self.dropout = nn.Dropout(0.25)  
+
+    def forward(self, x):
+        # Encoding path
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)  # Downsample
+        x = F.relu(self.conv2(x))
+
+        # Decoding path
+        x = self.upsample(x)  # Upsample
+        x = F.relu(self.conv3(x))
+        x = self.dropout(x)
+        x = self.conv4(x)  # No activation, this is the output layer
+        return x
+class CNN_2D_mask_0113(nn.Module):
+    def __init__(self):
+        super(CNN_2D_mask_0113, self).__init__()
+        # Encoder
+        self.conv1 = nn.Conv2d(2, 16, kernel_size=6, padding="same")  # Input channels = 2 (x, y velocities), output channels = 16
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=6, padding="same")  # Increase channels
+        self.pool = nn.MaxPool2d(2, 2)  # Downsampling
+
+        # Decoder
+        self.conv3 = nn.Conv2d(32, 16, kernel_size=6, padding="same")
+        self.conv4 = nn.Conv2d(16, 2, kernel_size=6, padding="same")  # Output channels = 2 to match input dimensions
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)  # Upsampling
+        self.dropout = nn.Dropout(0.25)  
+
+    def forward(self, x):
+        # Encoding path
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)  # Downsample
+        x = F.relu(self.conv2(x))
+
+        # Decoding path
+        x = self.upsample(x)  # Upsample
+        x = F.relu(self.conv3(x))
+        x = self.dropout(x)
+        x = self.conv4(x)  # No activation, this is the output layer
+        return x
+
+class New_2DCNN(nn.Module):
+    def __init__(self):
+        super(New_2DCNN,self).__init__()
+        # Encode_r
+        self.conv1 = nn.Conv2d(2, 8, kernel_size=3, padding=1)  # Input channels = 2 (x, y velocities), output channels = 16
+        self.conv2 = nn.Conv2d(8, 16, kernel_size=3, padding=1)  # Input channels = 2 (x, y velocities), output channels = 16
+        self.conv3 = nn.Conv2d(16, 32, kernel_size=3, padding=1)  # Increase channels
+        self.pool = nn.MaxPool2d(2, 2)  # Downsampling
+
+        # Decoder
+        self.conv4 = nn.Conv2d(32, 16, kernel_size=3, padding=1)
+        self.conv5 = nn.Conv2d(16, 8, kernel_size=3, padding=1)
+        self.conv6 = nn.Conv2d(8, 2, kernel_size=3, padding=1)  # Output channels = 2 to match input dimensions
+        self.upsample = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)  # Upsampling
+        self.dropout = nn.Dropout(0.25)  
+
+    def forward(self, x):
+        # Encoding path
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)  # Downsample
+        x = F.relu(self.conv2(x))
+
+        # Decoding path
+        #x = self.upsample(x)  # Upsample
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
+        x = self.pool(x)  # Downsample
+        x = F.relu(self.conv5(x))
+
+        x = self.upsample(x)  # Upsample
+        x = self.dropout(x)
+        x = self.conv6(x)  # No activation, this is the output layer
+        return x
+
 class Complicated2DCNN(nn.Module):
     def __init__(self):
         super(Complicated2DCNN, self).__init__()
@@ -208,9 +356,50 @@ class Complicated2DCNN(nn.Module):
         #x = self.gap(x)
         return x
 
-class Simple2DCNN(nn.Module):
+class New2DCNN_0105(nn.Module):
     def __init__(self):
-        super(Simple2DCNN, self).__init__()
+        super(New2DCNN_0105, self).__init__()
+        # Encoder
+        self.conv1 = nn.Conv2d(2, 16, kernel_size=3, padding=1)  # Input channels = 2 (x, y velocities), output channels = 16
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)  # Increase channels
+        self.pool = nn.MaxPool2d(2, 2)  # Downsampling
+
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)  # Input channels = 2 (x, y velocities), output channels = 16
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, padding=1)  # Input channels = 2 (x, y velocities), output channels = 16
+        self.conv5 = nn.Conv2d(128, 64, kernel_size=3, padding=1)  # Increase channels
+        self.conv6 = nn.Conv2d(64, 32, kernel_size=3, padding=1)  # Increase channels
+        # Decoder
+        self.conv7 = nn.Conv2d(32, 16, kernel_size=3, padding=1)
+        self.conv8 = nn.Conv2d(16, 2, kernel_size=3, padding=1)  # Output channels = 2 to match input dimensions
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)  # Upsampling
+        self.dropout = nn.Dropout(0.25)  
+
+    def forward(self, x):
+        # Encoding path
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)  # Downsample
+        x = F.relu(self.conv2(x))
+
+        # Decoding path
+        x = self.upsample(x)  # Upsample
+        x = F.relu(self.conv3(x))
+        x = self.pool(x)  # Downsample
+        x = F.relu(self.conv4(x))
+        x = self.upsample(x)  # Upsample
+        x = F.relu(self.conv5(x))
+        x = self.pool(x)  # Downsample
+
+        # Decoding path
+        x = F.relu(self.conv6(x))
+        x = self.upsample(x)  # Upsample
+        x = F.relu(self.conv7(x))
+        x = self.dropout(x)
+        x = self.conv8(x)  # No activation, this is the output layer
+        return x
+
+class Simple2DCNN_1230(nn.Module):
+    def __init__(self):
+        super(Simple2DCNN_1230, self).__init__()
         # Encoder
         self.conv1 = nn.Conv2d(2, 16, kernel_size=3, padding=1)  # Input channels = 2 (x, y velocities), output channels = 16
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)  # Increase channels
