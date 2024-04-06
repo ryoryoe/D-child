@@ -32,8 +32,8 @@ class DDPM(nn.Module):
         self.device = device
         self.T = T #ノイズを加える回数
         # β1 and βt はオリジナルの ddpm reportに記載されている値を採用します
-        self.beta_1 = 1e-6 #t=1のノイズの大きさ(最初1.0e-4)
-        self.beta_T = 0.0002 #t=Tのノイズの大きさ(最初0.02)
+        self.beta_1 = 1e-4 #t=1のノイズの大きさ(最初1.0e-4)
+        self.beta_T = 0.02 #t=Tのノイズの大きさ(最初0.02)
         # β = [β1, β2, β3, ... βT] (length = T)
         self.betas = torch.linspace(self.beta_1, self.beta_T, T, device=device)#t=1からt=Tまでのノイズの大きさを線形に変化させる
         # α = [α1, α2, α3, ... αT] (length = T)
@@ -151,8 +151,8 @@ def ddpm_train(params):
     ddpm = DDPM(params.time_steps, device)
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
-        model = UNet(params.image_ch, params.image_ch).to(device)
-        #model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
+        #model = UNet(params.image_ch, params.image_ch).to(device)
+        model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
         loss_fn = torch.nn.MSELoss()
 
@@ -181,8 +181,8 @@ def ddpm_train(params):
                 # xにノイズを加えて学習データを作成する
                 xt, t, noise = ddpm.diffusion_process(x)
                 # モデルによる予測〜誤差逆伝播
-                #out = model(xt, t,v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
-                out = model(xt, t)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                out = model(xt, t,v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                #out = model(xt, t)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
                 loss = loss_fn(noise, out)#ノイズと予測したノイズの誤差を計算
                 train_loss += loss.item()
                 optimizer.zero_grad()
@@ -206,7 +206,8 @@ def ddpm_train(params):
             avg_train_loss = train_loss/(len(train_x)//params.batch_size)
             loss_list.append(avg_train_loss)
             epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}"})
-
+            if epoch % params.save_interval == 0:    
+                torch.save(model,f"../result/{params.output_path}/weight_{params.output_path}_epoch={epoch}.pth")
         fig=plt.figure()
         plt.plot(loss_list,label='valid', lw=2, c='b')
         #plt.plot(loss_list_test,label='test', lw=2, c='k')
@@ -281,6 +282,7 @@ class HyperParameters:
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
+    save_interval: int = 20
     learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 50 #エポック数

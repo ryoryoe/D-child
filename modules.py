@@ -210,8 +210,40 @@ class Up_new_0406(nn.Module):
         #print(f"up2_second_{x.shape=}")
         #print(f"{skip_x.shape=}")
         #print(f"{x.shape=}")
+        x = torch.cat([skip_x, x], dim=1)
+        #print(f"up2_cat_{x.shape=}")
+        #sys.exit()
+        x = self.conv(x)
+        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+        return x + emb
+
+class Up_new_0406_first(nn.Module):
+    def __init__(self, in_channels, out_channels, emb_dim=256):
+        super().__init__()
+
+        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
+        self.conv = nn.Sequential(
+            DoubleConv(in_channels, in_channels, residual=True),
+            DoubleConv(in_channels, out_channels, in_channels // 2),
+        )
+
+        self.emb_layer = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(
+                emb_dim,
+                out_channels
+            ),
+        )
+
+    def forward(self, x, skip_x, t):
+        #print(f"up2_first_{x.shape=}")
+        #x = self.up(x)
+        #print(f"up2_second_{x.shape=}")
+        #print(f"{skip_x.shape=}")
+        #print(f"{x.shape=}")
         #x = torch.cat([skip_x, x], dim=1)
         #print(f"up2_cat_{x.shape=}")
+        #sys.exit()
         x = self.conv(x)
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
@@ -279,12 +311,17 @@ class conditional_diffusion_0406(nn.Module):
         self.down3 = Down(128, 256)
         self.down4 = Down(256, 512)
         
-        #decoder
+        #decoder(deccoderはtorch.catを用いて配列を列方向に結合してから使うので特徴量は2倍になる)
         self.up1 = Up_new_0406(512, 256)
-        self.up2 = Up_new_0406(256, 128)
-        self.up3 = Up_new_0406(128, 64)
-        self.up4 = nn.Conv2d(64, 2, kernel_size=1)
-
+        self.up2 = Up_new_0406_first(256, 128) #firstはskip_connectionがないので倍になることはない
+        self.up3 = Up_new_0406(256, 64)
+        self.up4 = Up_new_0406(128, 64)
+        self.up5 = nn.Conv2d(64, 2, kernel_size=1)
+        
+        #bottom
+        self.bot1 = DoubleConv(256, 512)
+        self.bot2 = DoubleConv(512, 512)
+        self.bot3 = DoubleConv(512, 256)
         #linear
         self.linear2 = nn.Linear(2,2*32*32)
         self.linear64 = nn.Linear(2,64*32*32)
@@ -326,7 +363,7 @@ class conditional_diffusion_0406(nn.Module):
         x0 = x
         #print(f"{x.shape=}")
         x1 = self.down1(x)
-        x1 = self.sa64(x1)
+        #x1 = self.sa64(x1)
         #v2 = self.linear64(v).view(-1,64,32,32)
         #x1 += v2
         #print(f"{x1.shape=}")
@@ -337,11 +374,14 @@ class conditional_diffusion_0406(nn.Module):
         #print(f"{x2.shape=}")
         x3 = self.down3(x2, t)
         x3 = self.sa256(x3)
+        x4 = self.bot1(x3)
+        x4 = self.bot2(x4)
+        x4 = self.bot3(x4)
         #v4 = self.linear256(v).view(-1,256,8,8)
         #x3 += v4
         #print(f"{x3.shape=}")
-        x4 = self.down4(x3, t)
-        x4 = self.sa512(x4)
+        #x4 = self.down4(x3, t)
+        #x4 = self.sa512(x4)
         #v5 = self.linear512(v).view(-1,512,4,4)
         #x4 += v5
         #print(f"{x4.shape=}")
@@ -349,20 +389,20 @@ class conditional_diffusion_0406(nn.Module):
         #if not self.remove_deep_conv:
         #    x4 = self.bot2(x4)
         #x4 = self.bot3(x4)
-        x = self.up1(x4, x3, t)
-        x = self.sa256(x)
+        x = self.up2(x4, x3, t)
+        x = self.sa128(x)
         #v6 = self.linear256(v).view(-1,256,8,8)
         #x += v6
         #print(f"dec_256_{x.shape=}")
-        x = self.up2(x, x3, t)
-        x = self.sa128(x)
+        x = self.up3(x, x2, t)
+        x = self.sa64(x)
         #v6 = self.linear128(v).view(-1,128,16,16)
         #x += v6
-        x = self.up3(x, x2, t)
+        x = self.up4(x, x1, t)
         x = self.sa64(x)
         #v7 = self.linear64(v).view(-1,64,32,32)
         #x += v7
-        output = self.up4(x)
+        output = self.up5(x)
         output = output + x0
         #v8 = self.linear2(v).view(-1,2,32,32)
         #output = output + x0 + v8
