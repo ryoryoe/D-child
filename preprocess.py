@@ -92,13 +92,25 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
     #print(f"after_{len(train)=}")
     #sys.exit()
 
-
     #get_file_name and delete nan file
     file_names = file_name_maker(f"{inputname}")
     file_names = sort_and_combine_strings(file_names)
     file_names = np.delete(file_names, indices_to_remove)
+    # 正規表現を使用してvxとvyを抽出
+    vx_list = []
+    vy_list = []
+    for filename in file_names:
+        vx_match = re.search(r"velocity_x=([-0-9.]+)", filename)
+        vy_match = re.search(r"velocity_y=([-0-9.]+)", filename)
+        
+        if vx_match and vy_match:
+            vx = float(vx_match.group(1))
+            vy = float(vy_match.group(1))
+        else:
+            print("速度を抽出できませんでした") 
+        vx_list.append(vx)
+        vy_list.append(vy)
     file_names = file_names.tolist()
-    
     #standardization
     if standard == 1:
         train = np.reshape(train, [len(train),-1])
@@ -116,4 +128,4 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
     evals = np.reshape(evals, [-1,width,width,2]).transpose(0,3,1,2)
     train = train[:len(evals)]
     file_names = file_names[:len(evals)]
-    return train, evals,file_names,avg_list,std_list
+    return train, evals,file_names,avg_list,std_list,vx_list,vy_list
