@@ -20,7 +20,7 @@ from preprocess import Preprocessing_standard
 from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
 # UNetはこちらを利用しています
-from modules import UNet,conditional_diffusion_0406
+from modules import UNet,conditional_diffusion_0406,conditional_diffusion_0407_sum,conditional_diffusion_0407_sum_and_cat
 from matplotlib.ticker import MultipleLocator
 
 # %%==========================================================================
@@ -32,8 +32,8 @@ class DDPM(nn.Module):
         self.device = device
         self.T = T #ノイズを加える回数
         # β1 and βt はオリジナルの ddpm reportに記載されている値を採用します
-        self.beta_1 = 1e-8 #t=1のノイズの大きさ(最初1.0e-4)
-        self.beta_T = 2.0e-6 #t=Tのノイズの大きさ(最初0.02)
+        self.beta_1 = 1e-6 #t=1のノイズの大きさ(最初1.0e-4)
+        self.beta_T = 2.0e-4 #t=Tのノイズの大きさ(最初0.02)
         # β = [β1, β2, β3, ... βT] (length = T)
         self.betas = torch.linspace(self.beta_1, self.beta_T, T, device=device)#t=1からt=Tまでのノイズの大きさを線形に変化させる
         # α = [α1, α2, α3, ... αT] (length = T)
@@ -153,7 +153,9 @@ def ddpm_train(params):
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
         #model = UNet(params.image_ch, params.image_ch).to(device)
-        model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
+        #model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
+        #model = conditional_diffusion_0407_sum(params.image_ch, params.image_ch).to(device)
+        model = conditional_diffusion_0407_sum_and_cat(params.image_ch, params.image_ch).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
         loss_fn = torch.nn.MSELoss()
 
@@ -279,9 +281,9 @@ class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "diffusion_model_0406_test_T=5_beta_1_10000" #出力先のフォルダ名
+    output_path: str = "diffusion_model_0407_test" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
-    train_file_path = "train_data_ver7" #学習データのフォルダ
+    train_file_path = "train_data_ver6_test" #学習データのフォルダ
     train_path: str = f"../{train_file_path}/Time=5" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
     test_path: str = f"../{file_path}/Time=5" #推定に使うデータ
@@ -295,7 +297,7 @@ class HyperParameters:
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 1000 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 128 #バッチサイズ
+    batch_size: int = 2 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)

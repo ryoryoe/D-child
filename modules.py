@@ -132,28 +132,6 @@ class Down(nn.Module):
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
 
-class Down_first(nn.Module):
-    def __init__(self, in_channels, out_channels, emb_dim=256):
-        super().__init__()
-        self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
-            DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels),
-        )
-
-        self.emb_layer = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(
-                emb_dim,
-                out_channels
-            ),
-        )
-
-    def forward(self, x, t):
-        #x = center_crop(x, 64, 64)
-        x = self.maxpool_conv(x)
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        return x + emb
 
 class Up_last(nn.Module):
     def __init__(self, in_channels, out_channels, emb_dim=256):
@@ -185,7 +163,8 @@ class Up_last(nn.Module):
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
 
-class Up_new_0406(nn.Module): #Upと同じ記述内容
+
+class Up_sum_and_cat(nn.Module): #残差接続のみ実装
     def __init__(self, in_channels, out_channels, emb_dim=256):
         super().__init__()
 
@@ -208,9 +187,40 @@ class Up_new_0406(nn.Module): #Upと同じ記述内容
         x = self.up(x)
         #print(f"up2_second_{x.shape=}")
         #print(f"{skip_x.shape=}")
+        #print(f"{x.shape=}")
+        x = x + skip_x
         x = torch.cat([skip_x, x], dim=1)
         #print(f"up2_cat_{x.shape=}")
-        #sys.exit()
+        x = self.conv(x)
+        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+        return x + emb
+class Up_sum(nn.Module): #残差接続のみ実装
+    def __init__(self, in_channels, out_channels, emb_dim=256):
+        super().__init__()
+
+        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
+        self.conv = nn.Sequential(
+            DoubleConv(in_channels, in_channels, residual=True),
+            DoubleConv(in_channels, out_channels, in_channels // 2),
+        )
+
+        self.emb_layer = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(
+                emb_dim,
+                out_channels
+            ),
+        )
+
+    def forward(self, x, skip_x, t):
+        #print(f"up2_first_{x.shape=}")
+        x = self.up(x)
+        #print(f"up2_second_{x.shape=}")
+        #print(f"{skip_x.shape=}")
+        #print(f"{x.shape=}")
+        x = x + skip_x
+        #x = torch.cat([skip_x, x], dim=1)
+        #print(f"up2_cat_{x.shape=}")
         x = self.conv(x)
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
@@ -267,6 +277,166 @@ def center_crop(x, new_height, new_width):
 
 
 # クロップして30x30に変換
+class conditional_diffusion_0407_sum_and_cat(nn.Module):
+    def __init__(self, c_in=2, c_out=2, time_dim=256, remove_deep_conv=True):
+        super().__init__()
+        self.time_dim = time_dim
+        self.remove_deep_conv = remove_deep_conv
+        
+        #encoder
+        self.down1 = DoubleConv(2, 64)
+        self.down2 = Down(64, 128)
+        self.down3 = Down(128, 256)
+        #self.down4 = Down(256, 512)
+        self.down4 = Down(256, 256)
+        
+        #decoder(deccoderは残差接続を行っている)
+        self.up1 = Up_sum_and_cat(512, 256) #使ってない
+        self.up2 = Up_sum_and_cat(512, 128) 
+        self.up3 = Up_sum_and_cat(256, 64)
+        self.up4 = Up_sum_and_cat(128, 64)
+        self.up5 = nn.Conv2d(64, 2, kernel_size=1)
+        
+        #bottom
+        self.bot1 = DoubleConv(256, 512)
+        self.bot2 = DoubleConv(512, 512)
+        self.bot3 = DoubleConv(512, 256)
+        #linear
+        self.linear2 = nn.Linear(2,2*32*32)
+        self.linear64 = nn.Linear(2,64*32*32)
+        self.linear128 = nn.Linear(2,128*16*16)
+        self.linear256 = nn.Linear(2,256*8*8)
+        self.linear512 = nn.Linear(2,512*4*4)
+        self.linear6 = nn.Linear(2,128*8*8)
+        self.linear7 = nn.Linear(2,64*16*16)
+        
+        #attention
+        self.sa64 = SelfAttention(64)
+        self.sa128 = SelfAttention(128)
+        self.sa256 = SelfAttention(256)
+        self.sa512 = SelfAttention(512)
+
+        """if remove_deep_conv:
+            self.bot1 = DoubleConv(256, 256)
+            self.bot3 = DoubleConv(256, 256)
+        else:
+            self.bot1 = DoubleConv(256, 512)
+            self.bot2 = DoubleConv(512, 512)
+            self.bot3 = DoubleConv(512, 256)"""
+
+
+    def pos_encoding(self, t, channels):#sinとcosの値を計算して結合する。これによっt時系列関係を特徴づけることが出来る
+        inv_freq = 1.0 / (
+            10000
+            ** (torch.arange(0, channels, 2, device=one_param(self).device).float() / channels)
+        )
+        pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
+        return pos_enc #時系列関係を特徴づけるためのベクトル
+
+    def unet_forwad(self, x, t):#tはノイズを何回加えたかを表す
+        x1 = self.down1(x)
+        x2 = self.down2(x1, t)
+        x2 = self.sa128(x2)
+        x3 = self.down3(x2, t)
+        x3 = self.sa256(x3)
+        x4 = self.down4(x3, t)
+        x4 = self.sa256(x4)
+        x = self.up2(x4, x3, t)
+        x = self.sa128(x)
+        x = self.up3(x, x2, t)
+        x = self.sa64(x)
+        x = self.up4(x, x1, t)
+        x = self.sa64(x)
+        output = self.up5(x)
+        return output
+
+    def forward(self, x, t):
+        t = t.unsqueeze(-1) # (B, T) -> (B, T, 1)
+        t = self.pos_encoding(t, self.time_dim) # (B, T, 1) -> (B, T, 256)
+        return self.unet_forwad(x, t)
+class conditional_diffusion_0407_sum(nn.Module):
+    def __init__(self, c_in=2, c_out=2, time_dim=256, remove_deep_conv=True):
+        super().__init__()
+        self.time_dim = time_dim
+        self.remove_deep_conv = remove_deep_conv
+        
+        #encoder
+        self.down1 = DoubleConv(2, 64)
+        self.down2 = Down(64, 128)
+        self.down3 = Down(128, 256)
+        #self.down4 = Down(256, 512)
+        self.down4 = Down(256, 256)
+        
+        #decoder(deccoderは残差接続を行っている)
+        self.up1 = Up_sum(512, 256) #使ってない
+        self.up2 = Up_sum(256, 128) 
+        self.up3 = Up_sum(128, 64)
+        self.up4 = Up_sum(64, 64)
+        self.up5 = nn.Conv2d(64, 2, kernel_size=1)
+        
+        #bottom
+        self.bot1 = DoubleConv(256, 512)
+        self.bot2 = DoubleConv(512, 512)
+        self.bot3 = DoubleConv(512, 256)
+        #linear
+        self.linear2 = nn.Linear(2,2*32*32)
+        self.linear64 = nn.Linear(2,64*32*32)
+        self.linear128 = nn.Linear(2,128*16*16)
+        self.linear256 = nn.Linear(2,256*8*8)
+        self.linear512 = nn.Linear(2,512*4*4)
+        self.linear6 = nn.Linear(2,128*8*8)
+        self.linear7 = nn.Linear(2,64*16*16)
+        
+        #attention
+        self.sa64 = SelfAttention(64)
+        self.sa128 = SelfAttention(128)
+        self.sa256 = SelfAttention(256)
+        self.sa512 = SelfAttention(512)
+
+        """if remove_deep_conv:
+            self.bot1 = DoubleConv(256, 256)
+            self.bot3 = DoubleConv(256, 256)
+        else:
+            self.bot1 = DoubleConv(256, 512)
+            self.bot2 = DoubleConv(512, 512)
+            self.bot3 = DoubleConv(512, 256)"""
+
+
+    def pos_encoding(self, t, channels):#sinとcosの値を計算して結合する。これによっt時系列関係を特徴づけることが出来る
+        inv_freq = 1.0 / (
+            10000
+            ** (torch.arange(0, channels, 2, device=one_param(self).device).float() / channels)
+        )
+        pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
+        return pos_enc #時系列関係を特徴づけるためのベクトル
+
+    def unet_forwad(self, x, t):#tはノイズを何回加えたかを表す
+        x1 = self.down1(x)
+        x2 = self.down2(x1, t)
+        x2 = self.sa128(x2)
+        x3 = self.down3(x2, t)
+        x3 = self.sa256(x3)
+        x4 = self.down4(x3, t)
+        x4 = self.sa256(x4)
+        x = self.up2(x4, x3, t)
+        x = self.sa128(x)
+        x = self.up3(x, x2, t)
+        x = self.sa64(x)
+        x = self.up4(x, x1, t)
+        x = self.sa64(x)
+        output = self.up5(x)
+        return output
+
+    def forward(self, x, t):
+        t = t.unsqueeze(-1) # (B, T) -> (B, T, 1)
+        t = self.pos_encoding(t, self.time_dim) # (B, T, 1) -> (B, T, 256)
+        return self.unet_forwad(x, t)
+
+
 class conditional_diffusion_0406(nn.Module):
     def __init__(self, c_in=2, c_out=2, time_dim=256, remove_deep_conv=True):
         super().__init__()
@@ -275,16 +445,16 @@ class conditional_diffusion_0406(nn.Module):
         
         #encoder
         self.down1 = DoubleConv(2, 64)
-        self.down2 = Down_first(64, 128)#center_cropを使うので最初のdownは特殊にしてた名残
+        self.down2 = Down(64, 128)#center_cropを使うので最初のdownは特殊にしてた名残
         self.down3 = Down(128, 256)
         #self.down4 = Down(256, 512)
         self.down4 = Down(256, 256)
         
         #decoder(deccoderはtorch.catを用いて配列を列方向に結合してから使うので特徴量は2倍になる)
-        self.up1 = Up_new_0406(512, 256) #使ってない
-        self.up2 = Up_new_0406(512, 128) #firstはskip_connectionがないので倍になることはない
-        self.up3 = Up_new_0406(256, 64)
-        self.up4 = Up_new_0406(128, 64)
+        self.up1 = Up(512, 256) #使ってない
+        self.up2 = Up(512, 128) #firstはskip_connectionがないので倍になることはない
+        self.up3 = Up(256, 64)
+        self.up4 = Up(128, 64)
         self.up5 = nn.Conv2d(64, 2, kernel_size=1)
         
         #bottom
