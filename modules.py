@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -186,7 +185,7 @@ class Up_last(nn.Module):
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
 
-class Up_new_0406(nn.Module):
+class Up_new_0406(nn.Module): #Upと同じ記述内容
     def __init__(self, in_channels, out_channels, emb_dim=256):
         super().__init__()
 
@@ -209,7 +208,6 @@ class Up_new_0406(nn.Module):
         x = self.up(x)
         #print(f"up2_second_{x.shape=}")
         #print(f"{skip_x.shape=}")
-        #print(f"{x.shape=}")
         x = torch.cat([skip_x, x], dim=1)
         #print(f"up2_cat_{x.shape=}")
         #sys.exit()
@@ -217,36 +215,6 @@ class Up_new_0406(nn.Module):
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
 
-class Up_new_0406_first(nn.Module):
-    def __init__(self, in_channels, out_channels, emb_dim=256):
-        super().__init__()
-
-        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-        self.conv = nn.Sequential(
-            DoubleConv(in_channels, in_channels, residual=True),
-            DoubleConv(in_channels, out_channels, in_channels // 2),
-        )
-
-        self.emb_layer = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(
-                emb_dim,
-                out_channels
-            ),
-        )
-
-    def forward(self, x, skip_x, t):
-        #print(f"up2_first_{x.shape=}")
-        #x = self.up(x)
-        #print(f"up2_second_{x.shape=}")
-        #print(f"{skip_x.shape=}")
-        #print(f"{x.shape=}")
-        #x = torch.cat([skip_x, x], dim=1)
-        #print(f"up2_cat_{x.shape=}")
-        #sys.exit()
-        x = self.conv(x)
-        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
-        return x + emb
 class Up(nn.Module):
     def __init__(self, in_channels, out_channels, emb_dim=256):
         super().__init__()
@@ -271,7 +239,7 @@ class Up(nn.Module):
         #print(f"up2_second_{x.shape=}")
         #print(f"{skip_x.shape=}")
         #print(f"{x.shape=}")
-        #x = torch.cat([skip_x, x], dim=1)
+        x = torch.cat([skip_x, x], dim=1)
         #print(f"up2_cat_{x.shape=}")
         x = self.conv(x)
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
@@ -307,13 +275,14 @@ class conditional_diffusion_0406(nn.Module):
         
         #encoder
         self.down1 = DoubleConv(2, 64)
-        self.down2 = Down_first(64, 128)
+        self.down2 = Down_first(64, 128)#center_cropを使うので最初のdownは特殊にしてた名残
         self.down3 = Down(128, 256)
-        self.down4 = Down(256, 512)
+        #self.down4 = Down(256, 512)
+        self.down4 = Down(256, 256)
         
         #decoder(deccoderはtorch.catを用いて配列を列方向に結合してから使うので特徴量は2倍になる)
-        self.up1 = Up_new_0406(512, 256)
-        self.up2 = Up_new_0406_first(256, 128) #firstはskip_connectionがないので倍になることはない
+        self.up1 = Up_new_0406(512, 256) #使ってない
+        self.up2 = Up_new_0406(512, 128) #firstはskip_connectionがないので倍になることはない
         self.up3 = Up_new_0406(256, 64)
         self.up4 = Up_new_0406(128, 64)
         self.up5 = nn.Conv2d(64, 2, kernel_size=1)
@@ -356,11 +325,11 @@ class conditional_diffusion_0406(nn.Module):
         pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
         return pos_enc #時系列関係を特徴づけるためのベクトル
 
-    def unet_forwad(self, x, t,v):#tはノイズを何回加えたかを表す
+    def unet_forwad(self, x, t):#tはノイズを何回加えたかを表す
         #print(f"{v.shape=}")
         #v1 = self.linear2(v).view(-1,2,32,32)
         #x += v1 
-        x0 = x
+        #x0 = x
         #print(f"{x.shape=}")
         x1 = self.down1(x)
         #x1 = self.sa64(x1)
@@ -374,9 +343,11 @@ class conditional_diffusion_0406(nn.Module):
         #print(f"{x2.shape=}")
         x3 = self.down3(x2, t)
         x3 = self.sa256(x3)
-        x4 = self.bot1(x3)
-        x4 = self.bot2(x4)
-        x4 = self.bot3(x4)
+        x4 = self.down4(x3, t)
+        x4 = self.sa256(x4)
+        #x4 = self.bot1(x4)
+        #x4 = self.bot2(x4)
+        #x4 = self.bot3(x4)
         #v4 = self.linear256(v).view(-1,256,8,8)
         #x3 += v4
         #print(f"{x3.shape=}")
@@ -403,15 +374,14 @@ class conditional_diffusion_0406(nn.Module):
         #v7 = self.linear64(v).view(-1,64,32,32)
         #x += v7
         output = self.up5(x)
-        output = output + x0
         #v8 = self.linear2(v).view(-1,2,32,32)
         #output = output + x0 + v8
         return output
 
-    def forward(self, x, t,v):
+    def forward(self, x, t):
         t = t.unsqueeze(-1) # (B, T) -> (B, T, 1)
         t = self.pos_encoding(t, self.time_dim) # (B, T, 1) -> (B, T, 256)
-        return self.unet_forwad(x, t,v)
+        return self.unet_forwad(x, t)
 
 class UNet(nn.Module):
     def __init__(self, c_in=2, c_out=2, time_dim=256, remove_deep_conv=True):

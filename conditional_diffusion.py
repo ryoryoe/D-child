@@ -32,8 +32,8 @@ class DDPM(nn.Module):
         self.device = device
         self.T = T #ノイズを加える回数
         # β1 and βt はオリジナルの ddpm reportに記載されている値を採用します
-        self.beta_1 = 1e-4 #t=1のノイズの大きさ(最初1.0e-4)
-        self.beta_T = 0.02 #t=Tのノイズの大きさ(最初0.02)
+        self.beta_1 = 1e-8 #t=1のノイズの大きさ(最初1.0e-4)
+        self.beta_T = 2.0e-6 #t=Tのノイズの大きさ(最初0.02)
         # β = [β1, β2, β3, ... βT] (length = T)
         self.betas = torch.linspace(self.beta_1, self.beta_T, T, device=device)#t=1からt=Tまでのノイズの大きさを線形に変化させる
         # α = [α1, α2, α3, ... αT] (length = T)
@@ -58,7 +58,8 @@ class DDPM(nn.Module):
                 # 整数値のtをテンソルに変換。テンソルのサイズは(バッチサイズ, )
                 time_tensor = (torch.ones(batch_size, device=self.device) * t).long()#tの値をバッチサイズ分用意
                 # 現在の画像からノイズを予測
-                prediction_noise = model(img, time_tensor,v)#ノイズを予測
+                #prediction_noise = model(img, time_tensor,v)#ノイズを予測
+                prediction_noise = model(img, time_tensor)#ノイズを予測
                 # 現在の画像からノイズを少し取り除く
                 img = self._calc_denoising_one_step(img, time_tensor, prediction_noise)
         model.train()
@@ -138,7 +139,7 @@ def ddpm_train(params):
         # データセットをランダムに分割
         #train_dataset, test_dataset = random_split(trainset, [train_size, test_size])
         
-        dataloader = torch.utils.data.DataLoader(trainset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
+        dataloader = torch.utils.data.DataLoader(trainset,batch_size = params.batch_size, num_workers = 2, drop_last=True,shuffle=True)
         #testloader = torch.utils.data.DataLoader(test_dataset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
     eval_x,eval_y,file_names_estimate,avg_list,std_list,vx_eval,vy_eval = Preprocessing_standard(estimate_path,estimate_eval_path,params.width,params.standard,params.cut)
     eval_x = torch.tensor(eval_x, dtype=torch.float32)
@@ -176,13 +177,12 @@ def ddpm_train(params):
                 vx,vy = vx.to(device),vy.to(device)
                 vx = vx.unsqueeze(1)
                 vy = vy.unsqueeze(1)
-                v= torch.cat([vx,vy],axis=1)
                 v = torch.cat((vx,vy),dim=1)
                 # xにノイズを加えて学習データを作成する
                 xt, t, noise = ddpm.diffusion_process(x)
                 # モデルによる予測〜誤差逆伝播
-                out = model(xt, t,v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
-                #out = model(xt, t)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                #out = model(xt, t,v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                out = model(xt, t)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
                 loss = loss_fn(noise, out)#ノイズと予測したノイズの誤差を計算
                 train_loss += loss.item()
                 optimizer.zero_grad()
@@ -218,12 +218,14 @@ def ddpm_train(params):
         plt.legend()
         ax = plt.gca()  # 現在の軸を取得
         ax.xaxis.set_major_locator(MultipleLocator(params.epochs*0.1)) 
-        plt.savefig(f"../result/{params.output_path}/loss_{params.output_path}.pdf")
-        
+        plt.savefig(f"../result/{params.output_path}/loss_{params.output_path}.pdf") 
         torch.save(model,f"../result/{params.output_path}/weight_{params.output_path}.pth")
     print("estimate_start")
     save_path = params.file_path
-    model = torch.load(params.weight_eval_path)
+    if params.byepoch:
+        model = torch.load(params.weight_eval_path_byepoch)
+    else:
+        model = torch.load(params.weight_eval_path)
     model = model.to(device)
     eval_loss = 0
     loss_list = []
@@ -236,11 +238,13 @@ def ddpm_train(params):
     for counter,(data,evaly,vx_eval,vy_eval) in enumerate(estimate_loader):
             data = data.to(device)
             vx_eval,vy_eval = vx_eval.to(device),vy_eval.to(device)
-            v = torch.cat([vx_eval,vy_eval])
+            vx_eval = vx_eval.unsqueeze(1)
+            vy_eval = vy_eval.unsqueeze(1)
+            v = torch.cat((vx_eval,vy_eval),dim=1)
             #torch型でt=1000を定義(型はint)
-            t = torch.ones(data.shape[0],dtype=torch.int32,device=device)*params.time_steps
-            xt, t, noise = ddpm.diffusion_process(data)
+            xt, t, noise = ddpm.diffusion_process(data,t=params.time_steps-1)
             p = ddpm.denoising_process(model, xt, params.time_steps,v)
+            #p = ddpm.denoising_process(model, xt, params.time_steps)
             p_output = p.detach().cpu().numpy()
             if params.standard == 1:
                 p_output = np.reshape(p_output,[params.batch_size,-1])
@@ -262,7 +266,11 @@ def ddpm_train(params):
         out = out.T
         file_maker(f"../result/{params.output_path}")
         file_maker(f"../result/{params.output_path}/{params.file_path}")
-        pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path}/estimate_{file_names_estimate[i]}.csv", index=False)
+        if params.byepoch:
+            file_maker(f"../result/{params.output_path}/{params.file_path_byepoch}")
+            pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path_byepoch}/estimate_{file_names_estimate[i]}.csv", index=False)
+        else:
+            pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path}/estimate_{file_names_estimate[i]}.csv", index=False)
         
 
 
@@ -271,23 +279,23 @@ class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "diffusion_model_0406_test" #出力先のフォルダ名
+    output_path: str = "diffusion_model_0406_test_T=5_beta_1_10000" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver7" #学習データのフォルダ
-    train_path: str = f"../{train_file_path}/Time=20" #学習データ
+    train_path: str = f"../{train_file_path}/Time=5" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
-    test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
+    test_path: str = f"../{file_path}/Time=5" #推定に使うデータ
     test_eval_path: str  = f"../{file_path}/Time=20" #推定に使うデータ(意味ない)
     weight_eval_path = f"../result/{output_path}/weight_{output_path}.pth" #学習済みモデルの名前
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
-    save_interval: int = 20
+    save_interval: int = 100
     learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 50 #エポック数
+    epochs: int = 1000 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 256 #バッチサイズ
+    batch_size: int = 128 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
@@ -295,5 +303,9 @@ class HyperParameters:
     rate = 0.1 #訓練データとテストデータの割合(前処理が終わっているデータの何割をテストデータとして使うか)
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
+    byepoch = False #学習途中のファイルで推定するならTrue
+    target_epoch: int = 10 #どのエポックのモデルを使って推定するか
+    weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
+    file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
 params = HyperParameters()
 ddpm_train(params)
