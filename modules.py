@@ -708,15 +708,44 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
-        self.fc = nn.Linear(2*32*32, 8*8*32)
+        self.fc = nn.Linear(32*32, 8*8*32)
         self.conv_trans1 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
         self.conv_trans2 = nn.ConvTranspose2d(16, 2, kernel_size=3, stride=2, padding=1, output_padding=1)
 
     def forward(self, x):
-        x = x.reshape(-1,2*32*32)
+        x = x.reshape(-1,32*32)
         x = self.fc(x)
         x = x.view(x.size(0), 32, 8, 8)
         x = F.relu(self.conv_trans1(x))
+        #print(f"conv_trans1_{x.shape=}")
         x = torch.sigmoid(self.conv_trans2(x))
+        #print(f"end_decoder_{x.shape=}")
         return x
+
+class Vae_Model(nn.Module):
+    def __init__(self, Encoder, Decoder):
+        super(Vae_Model, self).__init__()
+        self.Encoder = Encoder
+        self.Decoder = Decoder
+        
+    def reparameterization(self, mean, var,device):
+        epsilon = torch.randn_like(var).to(device)        
+        z = mean + var*epsilon                          # reparameterization trick
+        return z
+        
+                
+    def forward(self, x,device):
+        mean, log_var = self.Encoder(x)
+        z = self.reparameterization(mean, torch.exp(0.5 * log_var),device) # takes exponential function (log var -> var)
+        x_hat = self.Decoder(z)
+        
+        return x_hat, mean, log_var
+
+def vae_loss_function(x, x_hat, mean, log_var):
+    mse_loss = nn.MSELoss(reduction='sum')
+    #reproduction_loss = nn.functional.binary_cross_entropy(x_hat, x, reduction='sum')
+    reproduction_loss = mse_loss(x_hat, x)
+    KLD      = - 0.5 * torch.sum(1+ log_var - mean.pow(2) - log_var.exp())
+
+    return reproduction_loss + KLD
 
