@@ -63,10 +63,6 @@ class DDPM(nn.Module):
                 # 現在の画像からノイズを少し取り除く
                 img = self._calc_denoising_one_step(img, time_tensor, prediction_noise)
         model.train()
-        # 0~255のデータに変換して返す
-        img = img.clamp(-1, 1)
-        img = (img + 1) / 2
-        img = (img * 255).type(torch.uint8)
         return img
     
     def _calc_denoising_one_step(self, img, time_tensor, prediction_noise): #ノイズを計算する関数
@@ -281,9 +277,10 @@ class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "diffusion_model_0407_test" #出力先のフォルダ名
+    output_path: str = "diffusion_model_0408_sum" #出力先のフォルダ名
+    #output_path: str = "diffusion_model_0408_sum_and_cat" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
-    train_file_path = "train_data_ver6_test" #学習データのフォルダ
+    train_file_path = "train_data_ver7" #学習データのフォルダ
     train_path: str = f"../{train_file_path}/Time=5" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
     test_path: str = f"../{file_path}/Time=5" #推定に使うデータ
@@ -292,12 +289,12 @@ class HyperParameters:
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
-    save_interval: int = 100
-    learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
+    save_interval: int = 10 #何エポックごとにモデルを保存するか
+    learning = 0 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 1000 #エポック数
+    epochs: int = 50 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 2 #バッチサイズ
+    batch_size: int = 256 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)

@@ -109,6 +109,27 @@ class DoubleConv(nn.Module):
             #return self.double_conv(x)
             return x
 
+class Down_first(nn.Module):
+    def __init__(self, in_channels, out_channels, emb_dim=256):
+        super().__init__()
+        self.maxpool_conv = nn.Sequential(
+            nn.MaxPool2d(2),
+            DoubleConv(in_channels, in_channels, residual=True),
+            DoubleConv(in_channels, out_channels),
+        )
+
+        self.emb_layer = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(
+                emb_dim,
+                out_channels
+            ),
+        )
+
+    def forward(self, x, t):
+        x = self.maxpool_conv(x)
+        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+        return x + emb
 
 class Down(nn.Module):
     def __init__(self, in_channels, out_channels, emb_dim=256):
@@ -225,6 +246,35 @@ class Up_sum(nn.Module): #残差接続のみ実装
         emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
         return x + emb
 
+class Up_new_0406(nn.Module):
+    def __init__(self, in_channels, out_channels, emb_dim=256):
+        super().__init__()
+
+        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
+        self.conv = nn.Sequential(
+            DoubleConv(in_channels, in_channels, residual=True),
+            DoubleConv(in_channels, out_channels, in_channels // 2),
+        )
+
+        self.emb_layer = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(
+                emb_dim,
+                out_channels
+            ),
+        )
+
+    def forward(self, x, skip_x, t):
+        #print(f"up2_first_{x.shape=}")
+        x = self.up(x)
+        #print(f"up2_second_{x.shape=}")
+        #print(f"{skip_x.shape=}")
+        #print(f"{x.shape=}")
+        x = torch.cat([skip_x, x], dim=1)
+        #print(f"up2_cat_{x.shape=}")
+        x = self.conv(x)
+        emb = self.emb_layer(t)[:, :, None, None].repeat(1, 1, x.shape[-2], x.shape[-1])
+        return x + emb
 class Up(nn.Module):
     def __init__(self, in_channels, out_channels, emb_dim=256):
         super().__init__()
