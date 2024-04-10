@@ -258,10 +258,10 @@ class HyperParameters:
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
-    save_interval: int = 100 #何エポックごとにモデルを保存するか
+    save_interval: int = 500 #何エポックごとにモデルを保存するか
     learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 1000 #エポック数
+    epochs: int = 10000 #エポック数
     width: int = 32 #画像の幅
     batch_size: int = 512 #バッチサイズ
     lr: float = 1.0e-3 #学習率
