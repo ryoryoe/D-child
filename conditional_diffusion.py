@@ -20,7 +20,7 @@ from preprocess import Preprocessing_standard
 from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
 # UNetはこちらを利用しています
-from modules import UNet,conditional_diffusion_0406,conditional_diffusion_0407_sum,conditional_diffusion_0407_sum_and_cat
+from modules import UNet,conditional_diffusion_0406,conditional_diffusion_0407_sum,conditional_diffusion_0407_sum_and_cat,Vae_Diffusion_Model,Encoder,Decoder,vae_diffusion_loss_function
 from matplotlib.ticker import MultipleLocator
 
 # %%==========================================================================
@@ -149,11 +149,14 @@ def ddpm_train(params):
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
         #model = UNet(params.image_ch, params.image_ch).to(device)
-        #model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
         #model = conditional_diffusion_0407_sum(params.image_ch, params.image_ch).to(device)
-        model = conditional_diffusion_0407_sum_and_cat(params.image_ch, params.image_ch).to(device)
+        #model = conditional_diffusion_0407_sum_and_cat(params.image_ch, params.image_ch).to(device)
+        diffusion_model = conditional_diffusion_0406(params.image_ch, params.image_ch)
+        encoder = Encoder()
+        decoder = Decoder()
+        model = Vae_Diffusion_Model(Encoder=encoder,Decoder=decoder,conditional_diffusion_0406=diffusion_model).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
-        loss_fn = torch.nn.MSELoss()
+        loss_fn = vae_diffusion_loss_function
 
         start_epoch = 1
         loss_list = []
@@ -176,31 +179,14 @@ def ddpm_train(params):
                 vx = vx.unsqueeze(1)
                 vy = vy.unsqueeze(1)
                 v = torch.cat((vx,vy),dim=1)
-                # xにノイズを加えて学習データを作成する
-                xt, t, noise = ddpm.diffusion_process(x)
-                # モデルによる予測〜誤差逆伝播
-                #out = model(xt, t,v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
-                out = model(xt, t)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
-                loss = loss_fn(noise, out)#ノイズと予測したノイズの誤差を計算
+                out,mean,log_var,noise,noise_estimate = model(x)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                loss = loss_fn(x, out,mean,log_var,noise,noise_estimate)#ノイズと予測したノイズの誤差を計算
                 train_loss += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 iter_bar.set_postfix({"loss=": f"{loss.item():.2e}"})
 
-            # テストデータでの損失を計算
-            """model.eval()
-            for test_counter,(inputs,labels) in enumerate(testloader):
-                inputs,labels = inputs.to(device),labels.to(device)
-                optimizer.zero_grad()
-                xt, t, noise = ddpm.diffusion_process(inputs)
-                out = model(xt, t)
-                loss = loss_fn(labels,out)
-                test_loss += loss.item()
-            avg_train_loss = train_loss/len(train_dataset)
-            avg_test_loss = test_loss/len(test_dataset)
-            loss_list.append(avg_train_loss)
-            loss_list_test.append(avg_test_loss)"""
             avg_train_loss = train_loss/(len(train_x)//params.batch_size)
             loss_list.append(avg_train_loss)
             epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}"})
@@ -240,8 +226,9 @@ def ddpm_train(params):
             vy_eval = vy_eval.unsqueeze(1)
             v = torch.cat((vx_eval,vy_eval),dim=1)
             #torch型でt=1000を定義(型はint)
-            xt, t, noise = ddpm.diffusion_process(data,t=params.time_steps-1)
-            p = ddpm.denoising_process(model, xt, params.time_steps,v)
+            p,mean,log_var,noise,noise_estimate = model(data)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+            #xt, t, noise = ddpm.diffusion_process(data,t=params.time_steps-1)
+            #p = ddpm.denoising_process(model, xt, params.time_steps,v)
             #p = ddpm.denoising_process(model, xt, params.time_steps)
             p_output = p.detach().cpu().numpy()
             if params.standard == 1:
@@ -277,26 +264,26 @@ class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "diffusion_model_0408_sum" #出力先のフォルダ名
+    output_path: str = "vae_diffusion_model_0410" #出力先のフォルダ名
     #output_path: str = "diffusion_model_0408_sum_and_cat" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver7" #学習データのフォルダ
-    train_path: str = f"../{train_file_path}/Time=5" #学習データ
+    train_path: str = f"../{train_file_path}/Time=20" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
-    test_path: str = f"../{file_path}/Time=5" #推定に使うデータ
+    test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
     test_eval_path: str  = f"../{file_path}/Time=20" #推定に使うデータ(意味ない)
     weight_eval_path = f"../result/{output_path}/weight_{output_path}.pth" #学習済みモデルの名前
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
     save_interval: int = 10 #何エポックごとにモデルを保存するか
-    learning = 0 #1で学習を行う,0で学習を行わずに推定のみを行う
+    learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 50 #エポック数
+    epochs: int = 100 #エポック数
     width: int = 32 #画像の幅
     batch_size: int = 256 #バッチサイズ
     lr: float = 1.0e-3 #学習率
-    time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
+    time_steps: int =  500  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
     end_estimate_number=100 #推定するデータの数(多すぎる推定データを与えたときにこの数で推定をやめる)
     rate = 0.1 #訓練データとテストデータの割合(前処理が終わっているデータの何割をテストデータとして使うか)

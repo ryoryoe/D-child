@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import sys
+from tqdm import tqdm
 
 def one_param(m):
     "get model first parameter"
@@ -692,28 +694,28 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.conv1 = nn.Conv2d(2, 16, kernel_size=3, stride=2, padding=1)  # 32x32 -> 16x16
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1) # 16x16 -> 8x8
-        self.fc_mu = nn.Linear(8*8*32, 32*32)
-        self.fc_logvar = nn.Linear(8*8*32, 32*32)
+        self.fc_mu = nn.Linear(8*8*32, 2*32*32)
+        self.fc_logvar = nn.Linear(8*8*32, 2*32*32)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = x.view(x.size(0), -1)
         mu = self.fc_mu(x)
-        mu = mu.view(-1,32,32)
+        mu = mu.view(-1,2,32,32)
         logvar = self.fc_logvar(x)
-        logvar = logvar.view(-1,32,32)
+        logvar = logvar.view(-1,2,32,32)
         return mu, logvar
 
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
-        self.fc = nn.Linear(32*32, 8*8*32)
+        self.fc = nn.Linear(2*32*32, 8*8*32)
         self.conv_trans1 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
         self.conv_trans2 = nn.ConvTranspose2d(16, 2, kernel_size=3, stride=2, padding=1, output_padding=1)
 
     def forward(self, x):
-        x = x.reshape(-1,32*32)
+        x = x.reshape(-1,2*32*32)
         x = self.fc(x)
         x = x.view(x.size(0), 32, 8, 8)
         x = F.relu(self.conv_trans1(x))
@@ -741,6 +743,77 @@ class Vae_Model(nn.Module):
         
         return x_hat, mean, log_var
 
+class Vae_Diffusion_Model(nn.Module):
+    def __init__(self, Encoder, Decoder,conditional_diffusion_0406):
+        super(Vae_Diffusion_Model, self).__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.Encoder = Encoder
+        self.Decoder = Decoder
+        self.conditional_diffusion_0406 = conditional_diffusion_0406
+        self.T = 500 #ノイズを加える回数
+        self.beta_1 = 1e-6 #t=1のノイズの大きさ(最初1.0e-4)
+        self.beta_T = 2.0e-4 #t=Tのノイズの大きさ(最初0.02)
+        self.betas = torch.linspace(self.beta_1, self.beta_T, self.T, device=self.device)#t=1からt=Tまでのノイズの大きさを線形に変化させる
+        self.alphas = 1.0 - self.betas #最初の位置から今の位置までに加えるノイズの合計
+        # α bar [α_bar_1, α_bar_2, ... , α_bar_T] (length = T)
+        self.alpha_bars = torch.cumprod(self.alphas, dim=0) #αの配列
+        
+    def reparameterization(self, mean, var):
+        epsilon = torch.randn_like(var).to(self.device)        
+        z = mean + var*epsilon                          # reparameterization trick
+        return z
+
+    def diffusion_process(self, x0,t=None):
+        if t is None:
+            t = torch.randint(low=1, high=self.T, size=(x0.shape[0],), device=self.device) #最初に受け取る値はnoneで、その場合はランダムにtを選ぶ
+        noise = torch.randn_like(x0, device=self.device) #ノイズを生成
+        alpha_bar = self.alpha_bars[t].reshape(-1, 1, 1, 1) #tの値に応じてα_barを選ぶ
+        xt = torch.sqrt(alpha_bar) * x0 + torch.sqrt(1 - alpha_bar) * noise #ノイズを加える
+        return xt, t, noise #ノイズを加えきった画像、tの値、ノイズ
+                
+    def denoising_process(self, model, img, ts):#与えられた画像からノイズを取り除く関数
+        batch_size = img.shape[0] #バッチサイズを取得
+        model.eval() #モデルを評価モードにする
+        with torch.no_grad():
+            time_step_bar = reversed(range(1, ts)) #ノイズを復元するために逆順にループ
+            for t in time_step_bar:  # ts, ts-1, .... 3, 2, 1
+                # 整数値のtをテンソルに変換。テンソルのサイズは(バッチサイズ, )
+                time_tensor = (torch.ones(batch_size, device=self.device) * t).long()#tの値をバッチサイズ分用意
+                # 現在の画像からノイズを予測
+                #prediction_noise = model(img, time_tensor,v)#ノイズを予測
+                prediction_noise = model(img, time_tensor)#ノイズを予測
+                # 現在の画像からノイズを少し取り除く
+                img = self._calc_denoising_one_step(img, time_tensor, prediction_noise)
+        model.train()
+        return img
+    
+    def _calc_denoising_one_step(self, img, time_tensor, prediction_noise): #ノイズを計算する関数
+            beta = self.betas[time_tensor].reshape(-1, 1, 1, 1) #tの値に応じてノイズの大きさを選ぶ
+            sqrt_alpha = torch.sqrt(self.alphas[time_tensor].reshape(-1, 1, 1, 1)) #tの値に応じてαの値を選ぶ
+            alpha_bar = self.alpha_bars[time_tensor].reshape(-1, 1, 1, 1) #tの値に応じてα_barの値を選ぶ
+            sigma_t = torch.sqrt(beta)
+            noise = torch.randn_like(img, device=self.device) if time_tensor[0].item() > 1 else torch.zeros_like(img, device=self.device) #t=1の時はノイズを0にする.   
+            img = 1 / sqrt_alpha * (img - (beta / (torch.sqrt(1 - alpha_bar))) * prediction_noise) + sigma_t * noise #ノイズを取り除く
+            return img
+
+    def forward(self, x):
+        mean, log_var = self.Encoder(x)
+        z = self.reparameterization(mean, torch.exp(0.5 * log_var)) # takes exponential function (log var -> var)
+        z_,t,noise = self.diffusion_process(z)
+        noise_estimate = self.conditional_diffusion_0406(z_,t) 
+        z,_,_ = self.diffusion_process(z,t=self.T-1)
+        z = self.denoising_process(self.conditional_diffusion_0406,z,self.T-1)
+        x_hat = self.Decoder(z)
+        return x_hat, mean, log_var,noise,noise_estimate
+
+def vae_diffusion_loss_function(x, x_hat, mean, log_var,noise,noise_estimate):
+    mse_loss = nn.MSELoss(reduction='sum')
+    #reproduction_loss = nn.functional.binary_cross_entropy(x_hat, x, reduction='sum')
+    reproduction_loss = mse_loss(x_hat, x)
+    noise_loss = mse_loss(noise,noise_estimate)
+    KLD      = - 0.5 * torch.sum(1+ log_var - mean.pow(2) - log_var.exp())
+
+    return reproduction_loss + KLD + noise_loss
 def vae_loss_function(x, x_hat, mean, log_var):
     mse_loss = nn.MSELoss(reduction='sum')
     #reproduction_loss = nn.functional.binary_cross_entropy(x_hat, x, reduction='sum')
