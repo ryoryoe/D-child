@@ -94,7 +94,6 @@ def sort_and_combine_strings(input_array):
 def ddpm_train(params):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"{device=}")
-    # 必要なモデルなどを生成
     train_path = params.train_path
     train_eval_path = params.train_eval_path
     test_path = params.test_path
@@ -102,7 +101,7 @@ def ddpm_train(params):
     
     estimate_path = f"{test_path}"
     estimate_eval_path = f"{test_eval_path}"
-    
+    params.learning = 0 if params.byepoch else 1
     if params.learning ==1: 
         print("train_data_preprocessing_start")
         train_x,train_y,file_names,_,_,vx,vy = Preprocessing_standard(train_path,train_eval_path,params.width,params.standard,params.cut)
@@ -144,17 +143,20 @@ def ddpm_train(params):
     vy_eval = torch.tensor(vy_eval, dtype=torch.float32)
 
     evalset = torch.utils.data.TensorDataset(eval_x,eval_y,vx_eval,vy_eval)
-    estimate_loader= torch.utils.data.DataLoader(evalset,batch_size = 1, num_workers = 2, drop_last=True)
+    estimate_loader= torch.utils.data.DataLoader(evalset,batch_size = params.eval_batch_size, num_workers = 2, drop_last=True)
     ddpm = DDPM(params.time_steps, device)
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
         #model = UNet(params.image_ch, params.image_ch).to(device)
         #model = conditional_diffusion_0407_sum(params.image_ch, params.image_ch).to(device)
         #model = conditional_diffusion_0407_sum_and_cat(params.image_ch, params.image_ch).to(device)
-        diffusion_model = conditional_diffusion_0406(params.image_ch, params.image_ch)
-        encoder = Encoder()
-        decoder = Decoder()
-        model = Vae_Diffusion_Model(Encoder=encoder,Decoder=decoder,conditional_diffusion_0406=diffusion_model).to(device)
+        if params.additional_learning:
+            model = torch.load(params.additional_path).to(device)
+        else:
+            diffusion_model = conditional_diffusion_0406(params.image_ch, params.image_ch)
+            encoder = Encoder()
+            decoder = Decoder()
+            model = Vae_Diffusion_Model(Encoder=encoder,Decoder=decoder,conditional_diffusion_0406=diffusion_model).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
         loss_fn = vae_diffusion_loss_function
 
@@ -191,7 +193,12 @@ def ddpm_train(params):
             loss_list.append(avg_train_loss)
             epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}"})
             if epoch % params.save_interval == 0:    
-                torch.save(model,f"../result/{params.output_path}/weight_{params.output_path}_epoch={epoch}.pth")
+                if params.additional_learning:
+                    file_maker(f"../result/{params.output_path}/add_{params.add_number}")
+                    torch.save(model,f"../result/{params.output_path}/add_{params.add_number}/weight_{params.output_path}_epoch={epoch}_add{params.add_number}.pth")
+                else:
+                    file_maker(f"../result/{params.output_path}")
+                    torch.save(model,f"../result/{params.output_path}/weight_{params.output_path}_epoch={epoch}.pth")
         fig=plt.figure()
         plt.plot(loss_list,label='valid', lw=2, c='b')
         #plt.plot(loss_list_test,label='test', lw=2, c='k')
@@ -202,14 +209,16 @@ def ddpm_train(params):
         plt.legend()
         ax = plt.gca()  # 現在の軸を取得
         ax.xaxis.set_major_locator(MultipleLocator(params.epochs*0.1)) 
-        plt.savefig(f"../result/{params.output_path}/loss_{params.output_path}.pdf") 
-        torch.save(model,f"../result/{params.output_path}/weight_{params.output_path}.pth")
+        if params.additional_learning:
+            file_maker(f"../result/{params.output_path}/add_{params.add_number}")
+            plt.savefig(f"../result/{params.output_path}/add_{params.add_number}/loss_{params.output_path}_add{params.add_number}.pdf") 
+            torch.save(model,f"../result/{params.output_path}/add_{params.add_number}/weight_{params.output_path}_add{params.add_number}.pth")
+        else:
+            plt.savefig(f"../result/{params.output_path}/loss_{params.output_path}.pdf") 
+            torch.save(model,f"../result/{params.output_path}/weight_{params.output_path}.pth")
     print("estimate_start")
     save_path = params.file_path
-    if params.byepoch:
-        model = torch.load(params.weight_eval_path_byepoch)
-    else:
-        model = torch.load(params.weight_eval_path)
+    model = torch.load(params.weight_eval_path_byepoch) if params.byepoch else torch.load(params.weight_eval_path)
     model = model.to(device)
     eval_loss = 0
     loss_list = []
@@ -219,7 +228,7 @@ def ddpm_train(params):
     model.eval()
     avg_list = np.reshape(avg_list,[-1,1])
     std_list = np.reshape(std_list,[-1,1])
-    for counter,(data,evaly,vx_eval,vy_eval) in enumerate(estimate_loader):
+    for counter,(data,evaly,vx_eval,vy_eval) in tqdm(enumerate(estimate_loader),total=len(eval_x)):
             data = data.to(device)
             vx_eval,vy_eval = vx_eval.to(device),vy_eval.to(device)
             vx_eval = vx_eval.unsqueeze(1)
@@ -239,8 +248,9 @@ def ddpm_train(params):
                 p_output *= std
                 p_output += avg
                 p_output = np.reshape(p_output,[params.batch_size,params.width,params.width,2])
-            output_list.append(p_output)
-            count+=1
+            for i in range(params.batch_size):
+                output_list.append(p_output[i])
+            count+=params.eval_batch_size
             if count > params.end_estimate_number:
                 break
     output_list = np.array(output_list)
@@ -263,11 +273,9 @@ def ddpm_train(params):
 class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
-    #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "vae_diffusion_model_0410" #出力先のフォルダ名
-    #output_path: str = "diffusion_model_0408_sum_and_cat" #出力先のフォルダ名
+    output_path: str = "vae_diffusion_model_0411" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
-    train_file_path = "train_data_ver7" #学習データのフォルダ
+    train_file_path = "train_data_ver6_test" #学習データのフォルダ
     train_path: str = f"../{train_file_path}/Time=20" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
     test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
@@ -277,11 +285,12 @@ class HyperParameters:
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
     save_interval: int = 10 #何エポックごとにモデルを保存するか
-    learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
+    learning = 0 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 100 #エポック数
+    epochs: int = 1 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 256 #バッチサイズ
+    batch_size: int = 10 #バッチサイズ
+    eval_batch_size: int = 10
     lr: float = 1.0e-3 #学習率
     time_steps: int =  500  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
@@ -289,9 +298,23 @@ class HyperParameters:
     rate = 0.1 #訓練データとテストデータの割合(前処理が終わっているデータの何割をテストデータとして使うか)
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
-    byepoch = False #学習途中のファイルで推定するならTrue
-    target_epoch: int = 10 #どのエポックのモデルを使って推定するか
+    #途中までの重みを使う場合
+    byepoch = True #学習途中のファイルで推定するならTrue
+    learning = 0 if byepoch else 1 #学習を行う場合は1
+    target_epoch: int = 20 #どのエポックのモデルを使って推定するか
     weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
     file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
+
+    #追加学習を行う場合
+    additional_learning = True #学習済みモデルの追加学習を行う場合はTrue
+    add_number = 1 #追加学習の回数
+    if additional_learning:
+        additional_path = f"../result/{output_path}/weight_{output_path}_epoch=10.pth"#追加学習を行う場合の学習済みモデルのパス
+        weight_eval_path = f"../result/{output_path}/add_{add_number}/weight_{output_path}_add{add_number}.pth" #学習済みモデルの名前
+        weight_eval_path_byepoch = f"../result/{output_path}/add_{add_number}/weight_{output_path}_epoch={target_epoch}_add{add_number}.pth" #学習済みモデルの名前
+        file_path_byepoch: str = f"add_{add_number}/{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
+        file_path: str = f"add_{add_number}/{file_path}" #推定に使うデータのフォルダ
+    
+
 params = HyperParameters()
 ddpm_train(params)
