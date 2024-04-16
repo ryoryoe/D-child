@@ -694,12 +694,16 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.conv1 = nn.Conv2d(2, 16, kernel_size=3, stride=2, padding=1)  # 32x32 -> 16x16
         self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1) # 16x16 -> 8x8
-        self.fc_mu = nn.Linear(8*8*32, 2*32*32)
-        self.fc_logvar = nn.Linear(8*8*32, 2*32*32)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1) # 8x8 -> 4x4
+        self.conv4 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1) # 4x4 -> 4x4
+        self.fc_mu = nn.Linear(4*4*128, 2*32*32)
+        self.fc_logvar = nn.Linear(4*4*128, 2*32*32)
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
         x = x.view(x.size(0), -1)
         mu = self.fc_mu(x)
         mu = mu.view(-1,2,32,32)
@@ -710,18 +714,20 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
-        self.fc = nn.Linear(2*32*32, 8*8*32)
-        self.conv_trans1 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
-        self.conv_trans2 = nn.ConvTranspose2d(16, 2, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.fc = nn.Linear(2*32*32, 4*4*128)
+        self.conv_trans1 = nn.ConvTranspose2d(128, 64, kernel_size=3, stride=1, padding=1)
+        self.conv_trans2 = nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.conv_trans3 = nn.ConvTranspose2d(32, 16, kernel_size=3, stride=2, padding=1, output_padding=1)
+        self.conv_trans4 = nn.ConvTranspose2d(16, 2, kernel_size=3, stride=2, padding=1, output_padding=1)
 
     def forward(self, x):
         x = x.reshape(-1,2*32*32)
         x = self.fc(x)
-        x = x.view(x.size(0), 32, 8, 8)
+        x = x.view(x.size(0), 128, 4, 4)
         x = F.relu(self.conv_trans1(x))
-        #print(f"conv_trans1_{x.shape=}")
-        x = torch.sigmoid(self.conv_trans2(x))
-        #print(f"end_decoder_{x.shape=}")
+        x = F.relu(self.conv_trans2(x))
+        x = F.relu(self.conv_trans3(x))
+        x = torch.sigmoid(self.conv_trans4(x))
         return x
 
 class Vae_Model(nn.Module):
