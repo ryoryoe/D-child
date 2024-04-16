@@ -248,7 +248,7 @@ def ddpm_train(params):
                 p_output *= std
                 p_output += avg
                 p_output = np.reshape(p_output,[params.batch_size,params.width,params.width,2])
-            for i in range(params.batch_size):
+            for i in range(params.eval_batch_size):
                 output_list.append(p_output[i])
             count+=params.eval_batch_size
             if count > params.end_estimate_number:
@@ -275,7 +275,7 @@ class HyperParameters:
     task_name: str = "estimate_velocity"
     output_path: str = "vae_diffusion_model_0411" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
-    train_file_path = "train_data_ver6_test" #学習データのフォルダ
+    train_file_path = "train_data_ver7" #学習データのフォルダ
     train_path: str = f"../{train_file_path}/Time=20" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
     test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
@@ -285,12 +285,12 @@ class HyperParameters:
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
     save_interval: int = 10 #何エポックごとにモデルを保存するか
-    learning = 0 #1で学習を行う,0で学習を行わずに推定のみを行う
+    learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 1 #エポック数
+    epochs: int = 1000 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 10 #バッチサイズ
-    eval_batch_size: int = 10
+    batch_size: int = 256 #バッチサイズ
+    eval_batch_size: int = 10 #推定時のバッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  500  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
@@ -301,15 +301,15 @@ class HyperParameters:
     #途中までの重みを使う場合
     byepoch = True #学習途中のファイルで推定するならTrue
     learning = 0 if byepoch else 1 #学習を行う場合は1
-    target_epoch: int = 20 #どのエポックのモデルを使って推定するか
-    weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
+    target_epoch: int = 30 #どのエポックのモデルを使って推定するか
+    weight_eval_path_byepoch = f"../result/{output_path}/add_1/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
     file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
 
     #追加学習を行う場合
     additional_learning = True #学習済みモデルの追加学習を行う場合はTrue
     add_number = 1 #追加学習の回数
     if additional_learning:
-        additional_path = f"../result/{output_path}/weight_{output_path}_epoch=10.pth"#追加学習を行う場合の学習済みモデルのパス
+        additional_path = f"../result/{output_path}/weight_{output_path}.pth"#追加学習を行う場合の学習済みモデルのパス
         weight_eval_path = f"../result/{output_path}/add_{add_number}/weight_{output_path}_add{add_number}.pth" #学習済みモデルの名前
         weight_eval_path_byepoch = f"../result/{output_path}/add_{add_number}/weight_{output_path}_epoch={target_epoch}_add{add_number}.pth" #学習済みモデルの名前
         file_path_byepoch: str = f"add_{add_number}/{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
