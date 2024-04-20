@@ -273,18 +273,18 @@ def ddpm_train(params):
 class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
-    output_path: str = "vae_diffusion_model_0411" #出力先のフォルダ名
+    output_path: str = "vae_diffusion_model_0420_vy_over0.4" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
-    train_file_path = "train_data_ver7" #学習データのフォルダ
-    train_path: str = f"../{train_file_path}/Time=20" #学習データ
-    train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
-    test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
-    test_eval_path: str  = f"../{file_path}/Time=20" #推定に使うデータ(意味ない)
+    train_file_path = "train_data_ver11" #学習データのフォルダ
+    train_path: str = f"../{train_file_path}/Time=5" #学習データ
+    train_eval_path: str  = f"../{train_file_path}/Time=5" #学習データの正解ラベル
+    test_path: str = f"../{file_path}/Time=5" #推定に使うデータ
+    test_eval_path: str  = f"../{file_path}/Time=5" #推定に使うデータ(意味ない)
     weight_eval_path = f"../result/{output_path}/weight_{output_path}.pth" #学習済みモデルの名前
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
-    save_interval: int = 10 #何エポックごとにモデルを保存するか
+    save_interval: int = 20 #何エポックごとにモデルを保存するか
     learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 1000 #エポック数
@@ -299,14 +299,14 @@ class HyperParameters:
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
     #途中までの重みを使う場合
-    byepoch = True #学習途中のファイルで推定するならTrue
+    byepoch = False #学習途中のファイルで推定するならTrue
     learning = 0 if byepoch else 1 #学習を行う場合は1
     target_epoch: int = 30 #どのエポックのモデルを使って推定するか
     weight_eval_path_byepoch = f"../result/{output_path}/add_1/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
     file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
 
     #追加学習を行う場合
-    additional_learning = True #学習済みモデルの追加学習を行う場合はTrue
+    additional_learning = False #学習済みモデルの追加学習を行う場合はTrue
     add_number = 1 #追加学習の回数
     if additional_learning:
         additional_path = f"../result/{output_path}/weight_{output_path}.pth"#追加学習を行う場合の学習済みモデルのパス

@@ -110,6 +110,18 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
             print("速度を抽出できませんでした") 
         vx_list.append(vx)
         vy_list.append(vy)
+
+     # 0.4以上の値を持つインデックスを見つけて削除
+    indices_to_remove = [i for i, value in enumerate(vy_list) if value < 0.4]
+    # indices_to_removeを逆順にして、vyとvxから要素を削除
+    # 逆順にしないと、削除する際にインデックスがずれる可能性がある
+    for index in sorted(indices_to_remove, reverse=True):
+        del vy_list[index]
+        del vx_list[index]
+    file_names = np.delete(file_names, indices_to_remove)    
+    train = np.delete(train, indices_to_remove, axis=0)
+    evals = np.delete(evals, indices_to_remove, axis=0) 
+
     file_names = file_names.tolist()
     #standardization
     if standard == 1:
