@@ -111,7 +111,7 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
         vx_list.append(vx)
         vy_list.append(vy)
     # 0.4以上の値を持つインデックスを見つけて削除
-    indices_to_remove = [i for i, value in enumerate(vy_list) if value < 0.4]
+    indices_to_remove = [i for i, value in enumerate(vy_list) if value < 0.3]
     # indices_to_removeを逆順にして、vyとvxから要素を削除
     # 逆順にしないと、削除する際にインデックスがずれる可能性がある
     for index in sorted(indices_to_remove, reverse=True):
