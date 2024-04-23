@@ -277,7 +277,7 @@ class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "diffusion_model_0420_T=5_ver11_over_vy_0.3" #出力先のフォルダ名
+    output_path: str = "diffusion_model_0422_T=5_ver11_over_vy_0.5" #出力先のフォルダ名
     #output_path: str = "diffusion_model_0408_sum_and_cat" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver11" #学習データのフォルダ
@@ -294,7 +294,7 @@ class HyperParameters:
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 200 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 128 #バッチサイズ
+    batch_size: int = 32 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
