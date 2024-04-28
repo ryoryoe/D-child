@@ -299,10 +299,11 @@ class HyperParameters:
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
     #途中までの重みを使う場合
-    byepoch = False #学習途中のファイルで推定するならTrue
+    byepoch = True #学習途中のファイルで推定するならTrue
     learning = 0 if byepoch else 1 #学習を行う場合は1
-    target_epoch: int = 30 #どのエポックのモデルを使って推定するか
-    weight_eval_path_byepoch = f"../result/{output_path}/add_1/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
+    target_epoch: int = 60 #どのエポックのモデルを使って推定するか
+    weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
+    #weight_eval_path_byepoch = f"../result/{output_path}/add_1/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
     file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
 
     #追加学習を行う場合
