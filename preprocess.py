@@ -45,11 +45,11 @@ def process_file(path, eval_path,cut=0):
     df = df.values
     df = df.astype(float)
     #df配列の中で0.5以下の要素を0に変換
-    df = np.where(df <= cut, 0, df)
+    #df = np.where(df <= cut, 0, df)
     df_eval = pd.read_csv(eval_path)
     df_eval = df_eval.values
     df_eval = df_eval.astype(float)
-    df_eval = np.where(df_eval <= cut, 0, df_eval)
+    #df_eval = np.where(df_eval <= cut, 0, df_eval)
     return df,df_eval
 
 def standardization(velocity_x, velocity_y):
