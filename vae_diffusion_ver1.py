@@ -20,7 +20,7 @@ from preprocess import Preprocessing_standard
 from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
 # UNetはこちらを利用しています
-from modules import UNet,conditional_diffusion_0406,conditional_diffusion_0407_sum,conditional_diffusion_0407_sum_and_cat,Vae_Diffusion_Model,Encoder,Decoder,vae_diffusion_loss_function
+from modules import UNet,Vae_Diffusion_Model,Encoder,Decoder,vae_diffusion_loss_function
 from matplotlib.ticker import MultipleLocator
 
 # %%==========================================================================
@@ -153,12 +153,14 @@ def ddpm_train(params):
         if params.additional_learning:
             model = torch.load(params.additional_path).to(device)
         else:
-            diffusion_model = conditional_diffusion_0406(params.image_ch, params.image_ch)
+            diffusion = UNet()
             encoder = Encoder()
             decoder = Decoder()
-            model = Vae_Diffusion_Model(Encoder=encoder,Decoder=decoder,conditional_diffusion_0406=diffusion_model).to(device)
+            model = Vae_Diffusion_Model(Encoder=encoder,Decoder=decoder,UNet=diffusion).to(device)
+            #model = Vae_Diffusion_Model(Encoder=encoder,Decoder=decoder,UNet=UNet).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
         loss_fn = vae_diffusion_loss_function
+        #loss_fn = nn.MSELoss()
 
         start_epoch = 1
         loss_list = []
@@ -181,8 +183,9 @@ def ddpm_train(params):
                 vx = vx.unsqueeze(1)
                 vy = vy.unsqueeze(1)
                 v = torch.cat((vx,vy),dim=1)
-                out,mean,log_var,noise,noise_estimate = model(x)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
-                loss = loss_fn(x, out,mean,log_var,noise,noise_estimate)#ノイズと予測したノイズの誤差を計算
+                out,mean,log_var = model(x)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+                loss = loss_fn(out,y,mean,log_var)
+                #loss = loss_fn(x, out,mean,log_var,noise,noise_estimate)#ノイズと予測したノイズの誤差を計算
                 train_loss += loss.item()
                 optimizer.zero_grad()
                 loss.backward()
@@ -235,7 +238,7 @@ def ddpm_train(params):
             vy_eval = vy_eval.unsqueeze(1)
             v = torch.cat((vx_eval,vy_eval),dim=1)
             #torch型でt=1000を定義(型はint)
-            p,mean,log_var,noise,noise_estimate = model(data)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
+            p,mean,log_var = model(data)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
             #xt, t, noise = ddpm.diffusion_process(data,t=params.time_steps-1)
             #p = ddpm.denoising_process(model, xt, params.time_steps,v)
             #p = ddpm.denoising_process(model, xt, params.time_steps)
@@ -273,7 +276,7 @@ def ddpm_train(params):
 class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
-    output_path: str = "vae_diffusion_model_0420_vy_over0.4" #出力先のフォルダ名
+    output_path: str = "vae_diffusion_ver1_from5_to5_ver11" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver11" #学習データのフォルダ
     train_path: str = f"../{train_file_path}/Time=5" #学習データ
@@ -287,19 +290,19 @@ class HyperParameters:
     save_interval: int = 20 #何エポックごとにモデルを保存するか
     learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 1000 #エポック数
+    epochs: int = 50 #エポック数
     width: int = 32 #画像の幅
     batch_size: int = 256 #バッチサイズ
     eval_batch_size: int = 10 #推定時のバッチサイズ
     lr: float = 1.0e-3 #学習率
-    time_steps: int =  500  # T もう少し小さくても良いはず,何回ノイズを加えるか
+    time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
     end_estimate_number=100 #推定するデータの数(多すぎる推定データを与えたときにこの数で推定をやめる)
     rate = 0.1 #訓練データとテストデータの割合(前処理が終わっているデータの何割をテストデータとして使うか)
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
     #途中までの重みを使う場合
-    byepoch = True #学習途中のファイルで推定するならTrue
+    byepoch = False #学習途中のファイルで推定するならTrue
     learning = 0 if byepoch else 1 #学習を行う場合は1
     target_epoch: int = 60 #どのエポックのモデルを使って推定するか
     weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
