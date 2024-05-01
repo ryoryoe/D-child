@@ -93,7 +93,6 @@ def sort_and_combine_strings(input_array):
 # ddpm training
 # ============================================================================
 def ddpm_train(params):
-    condition_text(params.message,params.output_path)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"{device=}")
     # 必要なモデルなどを生成
@@ -271,7 +270,7 @@ def ddpm_train(params):
             pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path_byepoch}/estimate_{file_names_estimate[i]}.csv", index=False)
         else:
             pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path}/estimate_{file_names_estimate[i]}.csv", index=False)
-        
+    condition_text(params.message,params.output_path)
 
 
 @dataclass
