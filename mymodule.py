@@ -35,6 +35,10 @@ batch = 128
 #--------------------------------------------------
 #function
 #--------------------------------------------------
+def condition_text(message, output):
+    # ファイルを開き、messageの内容を書き込む
+    with open(output, 'w') as file:
+        file.write(message)
 
 def sort_and_combine_strings(input_array):
     a = []
