@@ -15,7 +15,7 @@ import pandas as pd
 # 漢字の画像を生成するため
 from fontTools import ttLib
 from PIL import Image, ImageFont, ImageDraw
-from mymodule import Preprocessing, file_maker
+from mymodule import Preprocessing, file_maker,condition_text
 from preprocess import Preprocessing_standard
 from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
@@ -33,8 +33,8 @@ class DDPM(nn.Module):
         self.device = device
         self.T = T #ノイズを加える回数
         # β1 and βt はオリジナルの ddpm reportに記載されている値を採用します
-        self.beta_1 = 1e-6 #t=1のノイズの大きさ(最初1.0e-4)
-        self.beta_T = 2.0e-4 #t=Tのノイズの大きさ(最初0.02)
+        self.beta_1 = 1e-9 #t=1のノイズの大きさ(最初1.0e-4)
+        self.beta_T = 2.0e-7 #t=Tのノイズの大きさ(最初0.02)
         # β = [β1, β2, β3, ... βT] (length = T)
         self.betas = torch.linspace(self.beta_1, self.beta_T, T, device=device)#t=1からt=Tまでのノイズの大きさを線形に変化させる
         # α = [α1, α2, α3, ... αT] (length = T)
@@ -93,6 +93,7 @@ def sort_and_combine_strings(input_array):
 # ddpm training
 # ============================================================================
 def ddpm_train(params):
+    condition_text(params.message,params.output_path)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"{device=}")
     # 必要なモデルなどを生成
@@ -278,7 +279,8 @@ class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "diffusion_model0430_T=5_ver11_first_U=net_epoch50" #出力先のフォルダ名
+    output_path: str = "diffusion_model_ver2_0501_T=5_ver11_epoch50_noise_1_1000" #出力先のフォルダ名
+    message: str = "ノイズのレベルを元の1000分の1にしてmaxを2.0e-7にしている。ノイズが大きすぎて主要部以外の速度が出てこないのかを検証"
     #output_path: str = "diffusion_model_0408_sum_and_cat" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver11" #学習データのフォルダ
@@ -295,7 +297,7 @@ class HyperParameters:
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 50 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 256 #バッチサイズ
+    batch_size: int = 128 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
