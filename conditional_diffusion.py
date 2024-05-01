@@ -21,6 +21,7 @@ from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
 # UNetはこちらを利用しています
 from modules import UNet,conditional_diffusion_0406,conditional_diffusion_0407_sum,conditional_diffusion_0407_sum_and_cat
+from regacy_unet import UNet as UNet2
 from matplotlib.ticker import MultipleLocator
 
 # %%==========================================================================
@@ -148,10 +149,10 @@ def ddpm_train(params):
     ddpm = DDPM(params.time_steps, device)
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
-        #model = UNet(params.image_ch, params.image_ch).to(device)
+        model = UNet2().to(device)
         #model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
         #model = conditional_diffusion_0407_sum(params.image_ch, params.image_ch).to(device)
-        model = conditional_diffusion_0407_sum_and_cat(params.image_ch, params.image_ch).to(device)
+        #model = conditional_diffusion_0407_sum_and_cat(params.image_ch, params.image_ch).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
         loss_fn = torch.nn.MSELoss()
 
@@ -277,7 +278,7 @@ class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
     #output_path: str = "diffusion_model_0221_T=20_from5_to20"
-    output_path: str = "diffusion_model_0422_T=5_ver11_over_vy_0.5" #出力先のフォルダ名
+    output_path: str = "diffusion_model0430_T=5_ver11_first_U=net_epoch50" #出力先のフォルダ名
     #output_path: str = "diffusion_model_0408_sum_and_cat" #出力先のフォルダ名
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver11" #学習データのフォルダ
@@ -289,18 +290,18 @@ class HyperParameters:
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
-    save_interval: int = 10 #何エポックごとにモデルを保存するか
+    save_interval: int = 100 #何エポックごとにモデルを保存するか
     learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
-    epochs: int = 200 #エポック数
+    epochs: int = 50 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 32 #バッチサイズ
+    batch_size: int = 256 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
     end_estimate_number=100 #推定するデータの数(多すぎる推定データを与えたときにこの数で推定をやめる)
     rate = 0.1 #訓練データとテストデータの割合(前処理が終わっているデータの何割をテストデータとして使うか)
-    cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
+    cut = 0.4 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
     byepoch = False #学習途中のファイルで推定するならTrue
     target_epoch: int = 10 #どのエポックのモデルを使って推定するか
