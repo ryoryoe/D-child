@@ -1,0 +1,10 @@
+pycache/
+.pyc
+@ea
+# ログファイル
+ .log
+.nfs
+# OS生成ファイル
+.DS_Store
+Thumbs.db
+ .*
