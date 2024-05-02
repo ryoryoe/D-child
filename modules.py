@@ -720,3 +720,36 @@ class Decoder(nn.Module):
         x = torch.sigmoid(self.conv_trans2(x))
         return x
 
+class Input_VModel(nn.Module):
+    #def __init__(self):
+    def __init__(self, UNet):
+        super(Input_VModel, self).__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.UNet = UNet
+        self.relu = nn.ReLU()
+        self.linear1 = nn.Linear(2, 2*32*32)
+        self.T = 1000 #ノイズを加える回数
+        self.beta_1 = 1e-6 #t=1のノイズの大きさ(最初1.0e-4)
+        self.beta_T = 2.0e-4 #t=Tのノイズの大きさ(最初0.02)
+        self.betas = torch.linspace(self.beta_1, self.beta_T, self.T, device=self.device)#t=1からt=Tまでのノイズの大きさを線形に変化させる
+        self.alphas = 1.0 - self.betas #最初の位置から今の位置までに加えるノイズの合計
+        # α bar [α_bar_1, α_bar_2, ... , α_bar_T] (length = T)
+        self.alpha_bars = torch.cumprod(self.alphas, dim=0) #αの配列
+        
+    def diffusion_process(self, x0,t=None):
+        if t is None:
+            t = torch.randint(low=1, high=self.T, size=(x0.shape[0],), device=self.device) #最初に受け取る値はnoneで、その場合はランダムにtを選ぶ
+        noise = torch.randn_like(x0, device=self.device) #ノイズを生成
+        alpha_bar = self.alpha_bars[t].reshape(-1, 1, 1, 1) #tの値に応じてα_barを選ぶ
+        xt = torch.sqrt(alpha_bar) * x0 + torch.sqrt(1 - alpha_bar) * noise #ノイズを加える
+        return xt, t, noise #ノイズを加えきった画像、tの値、ノイズ
+                
+    def forward(self, x):
+        z = self.linear1(x)
+        z = self.relu(z)
+        z = z.view(-1, 2,32, 32)
+        z,t,noise = self.diffusion_process(z)
+        z = self.UNet(z,t) 
+        return z
+
+
