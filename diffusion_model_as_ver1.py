@@ -272,13 +272,13 @@ def ddpm_train(params):
 class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
-    output_path: str = "diffusion_model_ver1_0502_train_ver11_from20_to_20_epoch50_noise_1_100" #出力先のフォルダ名
-    message: str = "ノイズレベルを下げてver1の学習方法で学習。ノイズレベルを下げる(1/100)ことで細かい部分の表現力が得られるのかを検証。最大ノイズを2.0e-4にしている" #学習内容
+    output_path: str = "diffusion_model_ver1_0502_train_ver11_from1_to_20_epoch50_noise_1_100" #出力先のフォルダ名
+    message: str = "ノイズレベルを下げてver1の学習方法で学習。ノイズレベルを下げる(1/100)ことで細かい部分の表現力が得られたので次は1秒目から20秒目を当てれるのかを調べる。最大ノイズを2.0e-4にしている" #学習内容
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
-    train_file_path = "train_data_ver11" #学習デー20のフォルダ
-    train_path: str = f"../{train_file_path}/Time=20" #学習データ
+    train_file_path = "train_data_ver11" #学習データのフォルダ
+    train_path: str = f"../{train_file_path}/Time=1" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
-    test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
+    test_path: str = f"../{file_path}/Time=1" #推定に使うデータ
     test_eval_path: str  = f"../{file_path}/Time=20" #推定に使うデータ(意味ない)
     weight_eval_path = f"../result/{output_path}/weight_{output_path}.pth" #学習済みモデルの名前
     
@@ -289,7 +289,7 @@ class HyperParameters:
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 50 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int = 256 #バッチサイズ
+    batch_size: int = 64 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)

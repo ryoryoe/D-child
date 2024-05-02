@@ -66,8 +66,6 @@ def standardization(velocity_x, velocity_y):
 def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
     input_path = sorted(glob.glob(inputname + "/*.csv"), key=natural_keys)
     eval_path = sorted(glob.glob(input_evalname + "/*.csv"), key=natural_keys)
-    #print(f"before_{len(input_path)=}")
-    #print(f"before_{len(eval_path)=}")
     num_cores = os.cpu_count()
     with ProcessPoolExecutor(max_workers=num_cores) as executor:
         results = list(tqdm(executor.map(process_file, input_path,eval_path,[cut]*len(input_path)),total=len(input_path)))
@@ -108,6 +106,8 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
             vy = float(vy_match.group(1))
         else:
             print("速度を抽出できませんでした") 
+            vx = 0
+            vy = 0
         vx_list.append(vx)
         vy_list.append(vy)
     # 0.4以上の値を持つインデックスを見つけて削除

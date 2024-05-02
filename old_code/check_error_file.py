@@ -5,10 +5,10 @@ import sys
 import os
 
 error_list = []
-target = "train_data_ver10"
-eval_time = 5 #位が変わると取り除く文字数が変わる:wq
-input_path = f"../{target}/Time=1"
-eval_path = f"../{target}/Time={eval_time}"
+target = "train_data_ver11"
+eval_time = 5 #位が変わると取り除く文字数が変わる
+input_path = f"/mnt/data1/tony/{target}/Time=1"
+eval_path = f"/mnt/data1/tony/{target}/Time={eval_time}"
 
 input_file_name = file_name_maker(input_path)
 eval_file_name = file_name_maker(eval_path)
