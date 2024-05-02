@@ -15,7 +15,7 @@ import pandas as pd
 # 漢字の画像を生成するため
 from fontTools import ttLib
 from PIL import Image, ImageFont, ImageDraw
-from mymodule import Preprocessing, file_maker
+from mymodule import Preprocessing, file_maker,condition_text
 from preprocess import Preprocessing_standard
 from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
@@ -33,8 +33,8 @@ class DDPM(nn.Module):
         self.device = device
         self.T = T #ノイズを加える回数
         # β1 and βt はオリジナルの ddpm reportに記載されている値を採用します
-        self.beta_1 = 1e-4 #t=1のノイズの大きさ(最初1.0e-4)
-        self.beta_T = 0.02 #t=Tのノイズの大きさ(最初0.02)
+        self.beta_1 = 1e-6 #t=1のノイズの大きさ(最初1.0e-4)
+        self.beta_T = 2.0e-4 #t=Tのノイズの大きさ(最初0.02)
         # β = [β1, β2, β3, ... βT] (length = T)
         self.betas = torch.linspace(self.beta_1, self.beta_T, T, device=device)#t=1からt=Tまでのノイズの大きさを線形に変化させる
         # α = [α1, α2, α3, ... αT] (length = T)
@@ -265,14 +265,15 @@ def ddpm_train(params):
             pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path_byepoch}/estimate_{file_names_estimate[i]}.csv", index=False)
         else:
             pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path}/estimate_{file_names_estimate[i]}.csv", index=False)
-        
+    condition_text(params.message,params.output_path)
 
 
 @dataclass
 class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
-    output_path: str = "diffusion_model_ver1_0501_train_ver11_from20_to_20_first_Unet_epoch50" #出力先のフォルダ名
+    output_path: str = "diffusion_model_ver1_0502_train_ver11_from20_to_20_epoch50_noise_1_100" #出力先のフォルダ名
+    message: str = "ノイズレベルを下げてver1の学習方法で学習。ノイズレベルを下げる(1/100)ことで細かい部分の表現力が得られるのかを検証。最大ノイズを2.0e-4にしている" #学習内容
     file_path: str = "train_data_ver6_test" #推定に使うデータのフォルダ
     train_file_path = "train_data_ver11" #学習デー20のフォルダ
     train_path: str = f"../{train_file_path}/Time=20" #学習データ
