@@ -20,7 +20,7 @@ from preprocess import Preprocessing_standard
 from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
 # UNetはこちらを利用しています
-from modules import UNet,conditional_diffusion_0406,conditional_diffusion_0407_sum,conditional_diffusion_0407_sum_and_cat,Input_VModel,Input_VModel2_0504
+from modules import UNet,conditional_diffusion_0406,conditional_diffusion_0407_sum,conditional_diffusion_0407_sum_and_cat,Input_VModel,Input_VModel2_0504,Input_2VModel
 from modules_ver2_0429 import  UNet as UNet2
 from matplotlib.ticker import MultipleLocator
 
@@ -109,11 +109,13 @@ def ddpm_train(params):
     
     if params.learning ==1: 
         print("train_data_preprocessing_start")
-        train_x,train_y,file_names,_,_,vx,vy = Preprocessing_standard(train_path,train_eval_path,params.width,params.standard,params.cut)
+        train_x,train_y,file_names,_,_,vx,vy,vx2,vy2 = Preprocessing_standard(train_path,train_eval_path,params.width,params.standard,params.cut,v2=True)
         train_x = torch.tensor(train_x, dtype=torch.float32)
         train_y = torch.tensor(train_y, dtype=torch.float32)
         vx = torch.tensor(vx, dtype=torch.float32)
         vy = torch.tensor(vy, dtype=torch.float32)
+        vx2 = torch.tensor(vx2, dtype=torch.float32)
+        vy2 = torch.tensor(vy2, dtype=torch.float32)
         #train_dara_ver10でnanを出さないための応急処置
         if str(10) in params.train_file_path:
              a = train_x[:3350]
@@ -129,7 +131,8 @@ def ddpm_train(params):
              b = vy[:3400]
              vy = torch.cat([a,b])
         train_x, train_y,vx,vy = train_x[:params.cut_size], train_y[:params.cut_size],vx[:params.cut_size],vy[:params.cut_size]
-        trainset = torch.utils.data.TensorDataset(train_x,train_y,vx,vy)
+        vx2,vy2 = vx2[:params.cut_size],vy2[:params.cut_size]
+        trainset = torch.utils.data.TensorDataset(train_x,train_y,vx,vy,vx2,vy2)
         #print(trainset.shape) 
         # データセットのサイズを計算
         #dataset_size = len(trainset)
@@ -142,20 +145,22 @@ def ddpm_train(params):
         #dataloader = torch.utils.data.DataLoader(trainset,batch_size = params.batch_size, num_workers = 2, drop_last=True,shuffle=True)
         dataloader = torch.utils.data.DataLoader(trainset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
         #testloader = torch.utils.data.DataLoader(test_dataset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
-    eval_x,eval_y,file_names_estimate,avg_list,std_list,vx_eval,vy_eval = Preprocessing_standard(estimate_path,estimate_eval_path,params.width,params.standard,params.cut)
+    eval_x,eval_y,file_names_estimate,avg_list,std_list,vx_eval,vy_eval,vx2_eval,vy2_eval = Preprocessing_standard(estimate_path,estimate_eval_path,params.width,params.standard,params.cut,v2=True)
     eval_x = torch.tensor(eval_x, dtype=torch.float32)
     eval_y = torch.tensor(eval_y, dtype=torch.float32)
     vx_eval = torch.tensor(vx_eval, dtype=torch.float32)
     vy_eval = torch.tensor(vy_eval, dtype=torch.float32)
-
-    evalset = torch.utils.data.TensorDataset(eval_x,eval_y,vx_eval,vy_eval)
+    vx2_eval = torch.tensor(vx2_eval, dtype=torch.float32)
+    vy2_eval = torch.tensor(vy2_eval, dtype=torch.float32)
+    evalset = torch.utils.data.TensorDataset(eval_x,eval_y,vx_eval,vy_eval,vx2_eval,vy2_eval)
     estimate_loader= torch.utils.data.DataLoader(evalset,batch_size = 1, num_workers = 2, drop_last=True)
     ddpm = DDPM(params.time_steps, device)
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
         UNet_ = UNet2()
         #model = Input_VModel(UNet=UNet_).to(device)
-        model = Input_VModel2_0504(UNet=UNet_).to(device)
+        #model = Input_VModel2_0504(UNet=UNet_).to(device)
+        model = Input_2VModel(UNet=UNet_).to(device)
         #model = UNet2().to(device)
         #model = conditional_diffusion_0406(params.image_ch, params.image_ch).to(device)
         #model = conditional_diffusion_0407_sum(params.image_ch, params.image_ch).to(device)
@@ -177,13 +182,14 @@ def ddpm_train(params):
             avg_test_loss = 0
             model.train()
             loss_count=0
-            for iter, (x,y,vx,vy) in enumerate(dataloader):
+            for iter, (x,y,vx,vy,vx2,vy2) in enumerate(dataloader):
                 x = x.to(device)
                 y = y.to(device)
-                vx,vy = vx.to(device),vy.to(device)
+                vx,vy,vx2,vy2 = vx.to(device),vy.to(device),vx2.to(device),vy2.to(device)
                 vx = vx.unsqueeze(1)
                 vy = vy.unsqueeze(1)
-                v = torch.cat((vx,vy),dim=1)
+                vx2,vy2 = vx2.unsqueeze(1),vy2.unsqueeze(1)
+                v = torch.cat((vx,vy,vx2,vy2),dim=1)
                 out = model(v)#modelに一度通せばノイズを取り除いた画像が出てくるので正解との誤差を計算できる
                 loss = loss_fn(y, out)#ノイズと予測したノイズの誤差を計算
                 #lossがinfなら終了
@@ -244,11 +250,13 @@ def ddpm_train(params):
     model.eval()
     avg_list = np.reshape(avg_list,[-1,1])
     std_list = np.reshape(std_list,[-1,1])
-    for counter,(data,evaly,vx_eval,vy_eval) in enumerate(estimate_loader):
+    for counter,(data,evaly,vx_eval,vy_eval,vx2_eval,vy2_eval) in enumerate(estimate_loader):
             vx_eval,vy_eval = vx_eval.to(device),vy_eval.to(device)
+            vx_eval2,vy_eval2 = vx2_eval.to(device),vy2_eval.to(device)
             vx_eval = vx_eval.unsqueeze(1)
             vy_eval = vy_eval.unsqueeze(1)
-            v = torch.cat((vx_eval,vy_eval),dim=1)
+            vx_eval2,vy_eval2 = vx_eval2.unsqueeze(1),vy_eval2.unsqueeze(1)
+            v = torch.cat((vx_eval,vy_eval,vx_eval2,vy_eval2),dim=1)
             p = model(v)
             p_output = p.detach().cpu().numpy()
             if params.standard == 1:
@@ -284,11 +292,11 @@ def ddpm_train(params):
 class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
-    output_path: str = "input_v_0505_ver14_to_20" #出力先のフォルダ名
+    output_path: str = "input_2v_0505" #出力先のフォルダ名
     #output_path: str = "input_v_0504_complicated_flow_to_20_add_relu_under_vy_0.8" #出力先のフォルダ名
-    message: str = "ver14を学習．速度の範囲を増やしてる" #学習内容
-    file_path: str = "train_data_ver14" #推定に使うデータのフォルダ
-    train_file_path = "" #学習データのフォルダ
+    message: str = "入り口2つに別の速度を振っているcomp_ver2で学習" #学習内容
+    file_path: str = "complicated_flow2_test" #推定に使うデータのフォルダ
+    train_file_path = "complicated_flow2" #学習データのフォルダ
     train_path: str = f"../{train_file_path}/Time=20" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
     test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
@@ -302,7 +310,7 @@ class HyperParameters:
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 500 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int =64 #バッチサイズ
+    batch_size: int =256 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
@@ -311,7 +319,7 @@ class HyperParameters:
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
     byepoch = True #学習途中のファイルで推定するならTrue
-    target_epoch: int = 250 #どのエポックのモデルを使って推定するか
+    target_epoch: int = 50 #どのエポックのモデルを使って推定するか
     weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
     file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
 params = HyperParameters()

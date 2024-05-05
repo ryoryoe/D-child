@@ -63,7 +63,7 @@ def standardization(velocity_x, velocity_y):
     velocity_y /= std_eval
     return velocity_x,velocity_y,avg,std
 
-def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
+def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0,v2=False): #入り口の数が2つなら2v=True
     input_path = sorted(glob.glob(inputname + "/*.csv"), key=natural_keys)
     eval_path = sorted(glob.glob(input_evalname + "/*.csv"), key=natural_keys)
     num_cores = os.cpu_count()
@@ -85,11 +85,6 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
     train = np.delete(train,indices_to_remove,axis=0)
     evals = np.delete(evals,indices_to_remove,axis=0)
 
-    #print(f"delete_index={indices_to_remove}")
-    #print(f"len(delete_index)={len(indices_to_remove)}")
-    #print(f"after_{len(train)=}")
-    #sys.exit()
-
     #get_file_name and delete nan file
     file_names = file_name_maker(f"{inputname}")
     file_names = sort_and_combine_strings(file_names)
@@ -97,6 +92,8 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
     # 正規表現を使用してvxとvyを抽出
     vx_list = []
     vy_list = []
+    vx2_list = []
+    vy2_list = []
     for filename in file_names:
         vx_match = re.search(r"velocity_x=([-0-9.]+)", filename)
         vy_match = re.search(r"velocity_y=([-0-9.]+)", filename)
@@ -106,12 +103,23 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
             vy = float(vy_match.group(1))
         else:
             print("速度を抽出できませんでした") 
-            vx = 0
-            vy = 0
+            sys.exit()
         vx_list.append(vx)
         vy_list.append(vy)
+
+        if v2:
+            vx_match = re.search(r"velocity_x2=([-0-9.]+)", filename)
+            vy_match = re.search(r"velocity_y2=([-0-9.]+)", filename)
+            if vx_match and vy_match:
+                vx2 = float(vx_match.group(1))
+                vy2 = float(vy_match.group(1))
+            else:
+                print("速度を抽出できませんでした") 
+                sys.exit()
+            vx2_list.append(vx2)
+            vy2_list.append(vy2)
     # 0.4以上の値を持つインデックスを見つけて削除
-    indices_to_remove = [i for i, value in enumerate(vy_list) if value < 0.4]
+    indices_to_remove = [i for i, value in enumerate(vy_list) if value > 0.8]
     # indices_to_removeを逆順にして、vyとvxから要素を削除
     # 逆順にしないと、削除する際にインデックスがずれる可能性がある
     for index in sorted(indices_to_remove, reverse=True):
@@ -139,4 +147,6 @@ def Preprocessing_standard(inputname,input_evalname,width,standard=0,cut=0):
     evals = np.reshape(evals, [-1,width,width,2]).transpose(0,3,1,2)
     train = train[:len(evals)]
     file_names = file_names[:len(evals)]
+    if v2:
+        return train, evals,file_names,avg_list,std_list,vx_list,vy_list,vx2_list,vy2_list
     return train, evals,file_names,avg_list,std_list,vx_list,vy_list
