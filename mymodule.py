@@ -506,3 +506,279 @@ class Net1D(nn.Module):
         x = self.fc(x)
         return x
 
+#def compute_losses(predicted_velocity, true_velocity, inlet_wind_speed):
+#    """
+#    推定結果からデータ損失、物理損失、壁の損失、入り口の損失を計算し、総合損失を返す関数。
+#
+#    Parameters:
+#    - predicted_velocity: モデルが予測した速度場（バッチサイズ, 2, 32, 32）
+#    - true_velocity: 正解の速度場（バッチサイズ, 2, 32, 32）
+#    - inlet_wind_speed: 入り口風速の定数値（スカラー）
+#
+#    Returns:
+#    - total_loss: 総合損失
+#    - losses: 個別の損失を含む辞書
+#    """
+#    # 重みの設定
+#    data_loss_weight = 5
+#    physics_loss_weight = 0.1
+#    wall_loss_weight = 0.5
+#    inlet_loss_weight = 1.0
+#    
+#    #初期設定
+#    #data_loss_weight = 2.0
+#    #physics_loss_weight = 0.1
+#    #wall_loss_weight = 0.5
+#    #inlet_loss_weight = 0.5
+#
+#    # メッシュの解像度
+#    nx, ny = 32, 32
+#    dx = dy = 3.2 / 32  # セルサイズ（0.1m）
+#
+#    # 1. データ損失（MSE）
+#    data_loss = torch.mean((predicted_velocity - true_velocity) ** 2)
+#
+#    # 2. 物理損失（連続の式）
+#    u = predicted_velocity[:, 0, :, :]  # x方向の速度
+#    v = predicted_velocity[:, 1, :, :]  # y方向の速度
+#
+#    # 中心差分による勾配計算
+#    du_dx = (u[:, :, 2:] - u[:, :, :-2]) / (2 * dx)
+#    dv_dy = (v[:, 2:, :] - v[:, :-2, :]) / (2 * dy)
+#
+#    # 内部の点のみを考慮
+#    du_dx = du_dx[:, 1:-1, :]
+#    dv_dy = dv_dy[:, :, 1:-1]
+#
+#    # ダイバージェンス（連続の式）
+#    divergence = du_dx + dv_dy
+#
+#    # 物理損失
+#    physics_loss = torch.mean(divergence ** 2)
+#
+#    # 3. 境界条件による損失
+#    # a. 壁沿いの速度は0
+#    wall_mask = torch.ones_like(u, dtype=torch.bool)
+#
+#    # x座標をインデックスに変換する関数(メッシュの区切り幅でインデックスは変わる)
+#    def x_to_index(x):
+#        return int(round(x / dx))
+#
+#    # 入り口と出口のxインデックス範囲
+#    inlet_x_start = x_to_index(1.0)   # x=1.0
+#    inlet_x_end = x_to_index(2.2)     # x=2.2
+#    outlet_x_start = x_to_index(1.4)  # x=1.4
+#    outlet_x_end = x_to_index(1.8)    # x=1.8
+#
+#    # 入り口と出口を壁マスクから除外
+#    wall_mask[:, 0, inlet_x_start:inlet_x_end] = False   # y=0（入り口）
+#    wall_mask[:, -1, outlet_x_start:outlet_x_end] = False  # y=31（出口）
+#
+#    # 壁での速度
+#    u_wall = u[wall_mask]
+#    v_wall = v[wall_mask]
+#
+#    # 壁の損失
+#    wall_loss = torch.mean(u_wall ** 2 + v_wall ** 2)
+#
+#    # b. 入り口の風速は一定
+#    inlet_mask = torch.zeros_like(u, dtype=torch.bool)
+#    inlet_mask[:, 0, inlet_x_start:inlet_x_end] = True
+#
+#    # 入り口での予測速度
+#    u_inlet_pred = u[inlet_mask]
+#    v_inlet_pred = v[inlet_mask]
+#
+#    # 入り口の真の速度
+#    u_inlet_true = inlet_wind_speed[:,0].repeat_interleave(inlet_x_end - inlet_x_start)
+#    v_inlet_true = inlet_wind_speed[:,1].repeat_interleave(inlet_x_end - inlet_x_start)
+#
+#    # 入り口の損失
+#    inlet_loss = torch.mean((u_inlet_pred - u_inlet_true) ** 2 + (v_inlet_pred - v_inlet_true) ** 2)
+#
+#    # 4. 総合損失
+#    total_loss = (data_loss_weight * data_loss +
+#                  physics_loss_weight * physics_loss +
+#                  wall_loss_weight * wall_loss +
+#                  inlet_loss_weight * inlet_loss)
+#
+#    # 個別の損失を辞書で返す
+#    losses = {
+#        'data_loss': data_loss,
+#        'physics_loss': physics_loss,
+#        'wall_loss': wall_loss,
+#        'inlet_loss': inlet_loss
+#    }
+#
+#    return total_loss, losses
+
+
+def compute_losses(predicted_velocity, predicted_pressure, true_velocity, true_pressure, inlet_wind_speed, fluid_density= 1.225 , fluid_viscosity=1.48e-5):
+    """
+    推定結果からデータ損失、物理損失、壁の損失、入り口の損失を計算し、総合損失を返す関数。
+
+    Parameters:
+    - predicted_velocity: モデルが予測した速度場（バッチサイズ, 2, 32, 32）
+    - predicted_pressure: モデルが予測した圧力場（バッチサイズ, 1, 32, 32）
+    - true_velocity: 正解の速度場（バッチサイズ, 2, 32, 32）
+    - true_pressure: 正解の圧力場（バッチサイズ, 1, 32, 32）
+    - inlet_wind_speed: 入り口風速の定数値（バッチサイズ, 2）
+    - fluid_density: 流体の密度（スカラー）
+    - fluid_viscosity: 流体の動粘性係数（スカラー）
+
+    Returns:
+    - total_loss: 総合損失
+    - losses: 個別の損失を含む辞書
+    """
+    # 重みの設定
+    data_loss_weight = 5.0
+    pressure_data_loss_weight = 5.0
+    continuity_loss_weight = 0.1
+    momentum_loss_weight = 0.1
+    wall_loss_weight = 0.5
+    inlet_loss_weight = 1.0
+
+    # メッシュの解像度
+    nx, ny = 32, 32
+    dx = dy = 3.2 / 32  # セルサイズ（0.1m）
+
+    # 1. データ損失（MSE）
+    data_loss = torch.mean((predicted_velocity - true_velocity) ** 2)
+
+    # 圧力のデータ損失（MSE）
+    pressure_data_loss = torch.mean((predicted_pressure - true_pressure) ** 2)
+
+    # 2. 物理損失
+    # a. 連続の式（質量保存則）
+    u = predicted_velocity[:, 0, :, :]  # x方向の速度 (バッチサイズ, H, W)
+    v = predicted_velocity[:, 1, :, :]  # y方向の速度 (バッチサイズ, H, W)
+    p = predicted_pressure[:, 0, :, :]  # 圧力場 (バッチサイズ, H, W)
+
+    # パディングして境界条件を考慮
+    u_padded = torch.nn.functional.pad(u, (1, 1, 1, 1), mode='replicate')  # (バッチサイズ, H+2, W+2)
+    v_padded = torch.nn.functional.pad(v, (1, 1, 1, 1), mode='replicate')
+    p_padded = torch.nn.functional.pad(p, (1, 1, 1, 1), mode='replicate')
+
+    # 中心差分による勾配計算
+    du_dx_full = (u_padded[:, 1:-1, 2:] - u_padded[:, 1:-1, :-2]) / (2 * dx)
+    du_dx = du_dx_full[:, 1:-1, 1:-1]  # (バッチサイズ, H-2, W-2)
+
+    du_dy_full = (u_padded[:, 2:, 1:-1] - u_padded[:, :-2, 1:-1]) / (2 * dy)
+    du_dy = du_dy_full[:, 1:-1, 1:-1]
+
+    dv_dx_full = (v_padded[:, 1:-1, 2:] - v_padded[:, 1:-1, :-2]) / (2 * dx)
+    dv_dx = dv_dx_full[:, 1:-1, 1:-1]
+
+    dv_dy_full = (v_padded[:, 2:, 1:-1] - v_padded[:, :-2, 1:-1]) / (2 * dy)
+    dv_dy = dv_dy_full[:, 1:-1, 1:-1]
+
+    # 連続の式（ダイバージェンス）
+    continuity = du_dx_full + dv_dy_full  # (バッチサイズ, H, W)
+    continuity = continuity[:, 1:-1, 1:-1]  # (バッチサイズ, H-2, W-2)
+
+    # 連続の式の損失
+    continuity_loss = torch.mean(continuity ** 2)
+
+    # b. ナビエ–ストークス方程式（運動量保存則）
+    # 圧力勾配（中心差分）
+    dp_dx_full = (p_padded[:, 1:-1, 2:] - p_padded[:, 1:-1, :-2]) / (2 * dx)
+    dp_dx = dp_dx_full[:, 1:-1, 1:-1]
+
+    dp_dy_full = (p_padded[:, 2:, 1:-1] - p_padded[:, :-2, 1:-1]) / (2 * dy)
+    dp_dy = dp_dy_full[:, 1:-1, 1:-1]
+
+    # 速度の2階微分（粘性項）
+    d2u_dx2_full = (u_padded[:, 1:-1, 2:] - 2 * u_padded[:, 1:-1, 1:-1] + u_padded[:, 1:-1, :-2]) / (dx ** 2)
+    d2u_dx2 = d2u_dx2_full[:, 1:-1, 1:-1]
+
+    d2u_dy2_full = (u_padded[:, 2:, 1:-1] - 2 * u_padded[:, 1:-1, 1:-1] + u_padded[:, :-2, 1:-1]) / (dy ** 2)
+    d2u_dy2 = d2u_dy2_full[:, 1:-1, 1:-1]
+
+    d2v_dx2_full = (v_padded[:, 1:-1, 2:] - 2 * v_padded[:, 1:-1, 1:-1] + v_padded[:, 1:-1, :-2]) / (dx ** 2)
+    d2v_dx2 = d2v_dx2_full[:, 1:-1, 1:-1]
+
+    d2v_dy2_full = (v_padded[:, 2:, 1:-1] - 2 * v_padded[:, 1:-1, 1:-1] + v_padded[:, :-2, 1:-1]) / (dy ** 2)
+    d2v_dy2 = d2v_dy2_full[:, 1:-1, 1:-1]
+
+    # ラプラシアン
+    laplacian_u = d2u_dx2 + d2u_dy2
+    laplacian_v = d2v_dx2 + d2v_dy2
+
+    # 中央部分の速度と圧力
+    u_center = u[:, 1:-1, 1:-1]  # (バッチサイズ, H-2, W-2)
+    v_center = v[:, 1:-1, 1:-1]
+    p_center = p[:, 1:-1, 1:-1]
+
+    # 慣性項
+    inertia_u = u_center * du_dx + v_center * du_dy
+    inertia_v = u_center * dv_dx + v_center * dv_dy
+
+    # 運動量方程式の残差
+    momentum_u = fluid_density * inertia_u + dp_dx - fluid_viscosity * laplacian_u
+    momentum_v = fluid_density * inertia_v + dp_dy - fluid_viscosity * laplacian_v
+
+    # 運動量保存則の損失
+    momentum_loss = torch.mean(momentum_u ** 2 + momentum_v ** 2)
+
+    # 3. 境界条件による損失
+    # a. 壁沿いの速度は0
+    wall_mask = torch.ones_like(u, dtype=torch.bool)
+
+    # x座標をインデックスに変換する関数
+    def x_to_index(x):
+        return int(round(x / dx))
+
+    # 入り口と出口のxインデックス範囲
+    inlet_x_start = x_to_index(1.0)   # x=1.0
+    inlet_x_end = x_to_index(2.2)     # x=2.2
+    outlet_x_start = x_to_index(1.4)  # x=1.4
+    outlet_x_end = x_to_index(1.8)    # x=1.8
+
+    # 入り口と出口を壁マスクから除外
+    wall_mask[:, 0, inlet_x_start:inlet_x_end] = False   # y=0（入り口）
+    wall_mask[:, -1, outlet_x_start:outlet_x_end] = False  # y=31（出口）
+
+    # 壁での速度
+    u_wall = u[wall_mask]
+    v_wall = v[wall_mask]
+
+    # 壁の損失
+    wall_loss = torch.mean(u_wall ** 2 + v_wall ** 2)
+
+    # b. 入り口の風速は一定
+    inlet_mask = torch.zeros_like(u, dtype=torch.bool)
+    inlet_mask[:, 0, inlet_x_start:inlet_x_end] = True
+
+    # 入り口での予測速度
+    u_inlet_pred = u[inlet_mask]
+    v_inlet_pred = v[inlet_mask]
+
+    # 入り口の真の速度
+    u_inlet_true = inlet_wind_speed[:, 0].unsqueeze(1).repeat(1, inlet_x_end - inlet_x_start).flatten()
+    v_inlet_true = inlet_wind_speed[:, 1].unsqueeze(1).repeat(1, inlet_x_end - inlet_x_start).flatten()
+
+    # 入り口の損失
+    inlet_loss = torch.mean((u_inlet_pred - u_inlet_true) ** 2 + (v_inlet_pred - v_inlet_true) ** 2)
+
+    # 4. 総合損失
+    total_loss = (
+        data_loss_weight * data_loss +
+        pressure_data_loss_weight * pressure_data_loss +
+        continuity_loss_weight * continuity_loss +
+        momentum_loss_weight * momentum_loss +
+        wall_loss_weight * wall_loss +
+        inlet_loss_weight * inlet_loss
+    )
+
+    # 個別の損失を辞書で返す
+    losses = {
+        'data_loss': data_loss,
+        'pressure_data_loss': pressure_data_loss,
+        'continuity_loss': continuity_loss,
+        'momentum_loss': momentum_loss,
+        'wall_loss': wall_loss,
+        'inlet_loss': inlet_loss
+    }
+
+    return total_loss, losses
+

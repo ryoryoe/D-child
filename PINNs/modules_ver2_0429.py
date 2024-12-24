@@ -201,32 +201,15 @@ class UNet(nn.Module):
         self.up3 = Up(128, 64)
         self.sa6 = SelfAttention(64)
         self.outc = nn.Conv2d(64, c_out, kernel_size=1)
-        self.fourier_map = nn.Linear(1, time_dim // 2, bias=False)
-        nn.init.normal_(self.fourier_map.weight, mean=0.0, std=1.0)
 
     def pos_encoding(self, t, channels):
-        #通常の位置エンコーディング
-        #inv_freq = 1.0 / (
-        #    10000
-        #    ** (torch.arange(0, channels, 2, device=one_param(self).device).float() / channels)
-        #)
-        #pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
-        #pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
-        #pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
-        # t: shape [B, 1] を想定
-
-        # channels = self.time_dim (UNetならデフォルト256)
-
-        # 1次元(t)を time_dim//2 次元へマッピング
-        t = t.float()
-        scaled_t = self.fourier_map(t)  # shape: [B, time_dim//2]
-
-        # sin/cos をそれぞれ time_dim//2 次元ずつ計算
-        pos_enc_sin = torch.sin(scaled_t)
-        pos_enc_cos = torch.cos(scaled_t)
-
-        # 最終的に [B, channels] = [B, time_dim] を返す
-        pos_enc = torch.cat([pos_enc_sin, pos_enc_cos], dim=-1)
+        inv_freq = 1.0 / (
+            10000
+            ** (torch.arange(0, channels, 2, device=one_param(self).device).float() / channels)
+        )
+        pos_enc_a = torch.sin(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc_b = torch.cos(t.repeat(1, channels // 2) * inv_freq)
+        pos_enc = torch.cat([pos_enc_a, pos_enc_b], dim=-1)
         return pos_enc
 
     def unet_forwad(self, x, t):

@@ -16,7 +16,7 @@ import pandas as pd
 from fontTools import ttLib
 from PIL import Image, ImageFont, ImageDraw
 from mymodule import Preprocessing, file_maker,condition_text
-from preprocess import Preprocessing_standard
+from preprocess import Preprocessing_standard,Preprocessing_standard_mix
 from torch.utils.data.dataset import random_split
 from torch.utils.data import TensorDataset, DataLoader
 # UNetはこちらを利用しています
@@ -25,9 +25,11 @@ from modules_ver2_0429 import  UNet as UNet2
 from matplotlib.ticker import MultipleLocator
 
 # %%==========================================================================
-# 複雑な部屋の二次元流れを推定するコード
+# 拡散モデルで回帰問題を解く最初のやり方でノイズを推定している
 # ============================================================================
 
+#vx_list = torch.tensor([-0.9,1.0,-0.6,-0.5,-1.2,-1.2,-0.5,-0.6,1.0,-0.9,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5])
+#vy_list = torch.tensor([0.9,1.0,1.2,1.5,1.3,1.3,1.5,1.2,1.0,0.9,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5])
 class DDPM(nn.Module):
     def __init__(self, T, device):
         super().__init__()
@@ -90,23 +92,6 @@ def sort_and_combine_strings(input_array):
     # 配列 a と b を結合
     file_names = a + b
     return file_names
-
-def save_checkpoint(model, optimizer, epoch, loss, filename='checkpoint.pth'):#重みを保存
-    checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss
-    }
-    torch.save(checkpoint, filename)
- 
-def load_checkpoint(model, optimizer, filename='checkpoint.pth'): #重みを読み込む
-    checkpoint = torch.load(filename)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    loss = checkpoint['loss']
-    return model, optimizer, epoch, loss
 # %%==========================================================================
 # ddpm training
 # ============================================================================
@@ -124,7 +109,7 @@ def ddpm_train(params):
     
     if params.learning ==1: 
         print("train_data_preprocessing_start")
-        train_x,train_y,file_names,_,_,vx,vy,vx2,vy2 = Preprocessing_standard(train_path,train_eval_path,params.width,params.standard,params.cut,v2=True)
+        train_x,train_y,file_names,_,_,vx,vy,vx2,vy2 = Preprocessing_standard_mix(train_path,train_eval_path,params.train2_path,params.train2_eval_path,params.width,params.standard,params.cut)
         train_x = torch.tensor(train_x, dtype=torch.float32)
         train_y = torch.tensor(train_y, dtype=torch.float32)
         vx = torch.tensor(vx, dtype=torch.float32)
@@ -160,7 +145,7 @@ def ddpm_train(params):
         #dataloader = torch.utils.data.DataLoader(trainset,batch_size = params.batch_size, num_workers = 2, drop_last=True,shuffle=True)
         dataloader = torch.utils.data.DataLoader(trainset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
         #testloader = torch.utils.data.DataLoader(test_dataset,batch_size = params.batch_size, num_workers = 2, drop_last=True)
-    eval_x,eval_y,file_names_estimate,avg_list,std_list,vx_eval,vy_eval,vx2_eval,vy2_eval = Preprocessing_standard(estimate_path,estimate_eval_path,params.width,params.standard,params.cut,v2=True)
+    eval_x,eval_y,file_names_estimate,avg_list,std_list,vx_eval,vy_eval,vx2_eval,vy2_eval = Preprocessing_standard_mix(estimate_path,estimate_eval_path,params.estimate2_path,params.estimate2_eval_path,params.width,params.standard,params.cut)
     eval_x = torch.tensor(eval_x, dtype=torch.float32)
     eval_y = torch.tensor(eval_y, dtype=torch.float32)
     vx_eval = torch.tensor(vx_eval, dtype=torch.float32)
@@ -172,7 +157,6 @@ def ddpm_train(params):
     ddpm = DDPM(params.time_steps, device)
     if params.learning == 1:
         file_maker(f"../result/{params.output_path}")
-        condition_text(params.message,params.output_path)
         UNet_ = UNet2()
         #model = Input_VModel(UNet=UNet_).to(device)
         #model = Input_VModel2_0504(UNet=UNet_).to(device)
@@ -183,13 +167,8 @@ def ddpm_train(params):
         #model = conditional_diffusion_0407_sum_and_cat(params.image_ch, params.image_ch).to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=params.lr)
         loss_fn = torch.nn.MSELoss()
-        if params.additional_learning: 
-            model, optimizer, start_epoch, loss = load_checkpoint(model, optimizer, f"../result/{params.output_path}/save_temp_weight/checkpoint_{params.output_path}_epoch={params.additional_epoch-1}.pth")
-        else:
-            file_maker(f"../result/{params.output_path}")
-            condition_text(params.message,params.output_path)
-            start_epoch = 0
 
+        start_epoch = 1
         loss_list = []
         loss_list_test = []
         # training
@@ -243,9 +222,6 @@ def ddpm_train(params):
             loss_list.append(avg_train_loss)
             epoch_bar.set_postfix({"train_loss": f"{avg_train_loss:.2e}"})
             if epoch % params.save_interval == 0:    
-                file_maker(f"../result/{params.output_path}/save_temp_weight")
-                file_maker(f"../result/{params.output_path}/loss_file")
-                save_checkpoint(model, optimizer, epoch, loss, f"../result/{params.output_path}/save_temp_weight/checkpoint_{params.output_path}_epoch={epoch}.pth")
                 torch.save(model,f"../result/{params.output_path}/weight_{params.output_path}_epoch={epoch}.pth")
         fig=plt.figure()
         plt.plot(loss_list,label='valid', lw=2, c='b')
@@ -308,31 +284,39 @@ def ddpm_train(params):
             pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path_byepoch}/estimate_{file_names_estimate[i]}.csv", index=False)
         else:
             pd.DataFrame(out,columns=["X Velocity","Y Velocity"]).to_csv(f"../result/{params.output_path}/{params.file_path}/estimate_{file_names_estimate[i]}.csv", index=False)
+    if params.learning == 1:
+        condition_text(params.message,params.output_path)
 
 
 @dataclass
 class HyperParameters:
     #ファイル関連
     task_name: str = "estimate_velocity"
-    output_path: str = "input_2v_0713_comp4" #出力先のフォルダ名
+    output_path: str = "mix_input_2v_0506" #出力先のフォルダ名
     #output_path: str = "input_v_0504_complicated_flow_to_20_add_relu_under_vy_0.8" #出力先のフォルダ名
-    message: str = "conv_ver4を学習" #学習内容
-    file_path: str = "complicated_flow4_test" #推定に使うデータのフォルダ
-    train_file_path = "complicated_flow4" #学習データのフォルダ
-    train_path: str = f"../{train_file_path}/Time=99" #学習データ
-    train_eval_path: str  = f"../{train_file_path}/Time=99" #学習データの正解ラベル
-    test_path: str = f"../{file_path}/Time=99" #推定に使うデータ
-    test_eval_path: str  = f"../{file_path}/Time=99" #推定に使うデータ(意味ない)
+    message: str = "2つの部屋の形状を同時学習できるかを検証．comp_ver2とtrain_data_ver11で学習" #学習内容
+    file_path: str = "complicated_flow2_test" #推定に使うデータのフォルダ
+    file_path2: str = "train_data_ver6_test" #推定に使うデータのフォルダ
+    train_file_path = "complicated_flow2" #学習データのフォルダ
+    train2_file_path = "train_data_ver11" #学習データのフォルダ    
+    train_path: str = f"../{train_file_path}/Time=20" #学習データ
+    train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
+    train2_path: str = f"../{train2_file_path}/Time=20" #学習データ
+    train2_eval_path: str  = f"../{train2_file_path}/Time=20"
+    test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
+    test_eval_path: str  = f"../{file_path}/Time=20" #推定に使うデータ(意味ない)
+    estimate2_path: str = f"../{file_path2}/Time=20" #推定に使うデータ
+    estimate2_eval_path: str  = f"../{file_path2}/Time=20"
     weight_eval_path = f"../result/{output_path}/weight_{output_path}.pth" #学習済みモデルの名前
     
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
-    save_interval: int = 25 #何エポックごとにモデルを保存するか
-    learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
+    save_interval: int = 50 #何エポックごとにモデルを保存するか
+    learning = 0 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 500 #エポック数
     width: int = 32 #画像の幅
-    batch_size: int =16 #バッチサイズ
+    batch_size: int =256 #バッチサイズ
     lr: float = 1.0e-3 #学習率
     time_steps: int =  1000  # T もう少し小さくても良いはず,何回ノイズを加えるか
     image_ch: int = 2 #画像のチャンネル数(xとyの速度の2つ)
@@ -340,13 +324,9 @@ class HyperParameters:
     rate = 0.1 #訓練データとテストデータの割合(前処理が終わっているデータの何割をテストデータとして使うか)
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
-    byepoch = False #学習途中のファイルで推定するならTrue
-    target_epoch: int = 50 #どのエポックのモデルを使って推定するか
+    byepoch = True #学習途中のファイルで推定するならTrue
+    target_epoch: int = 200 #どのエポックのモデルを使って推定するか
     weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
     file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
-
-    additional_learning = False #Trueですでに保存されている重みを読み込んで学習を再開する
-    additional_epoch = 326 #学習を再開するエポック数
-     
 params = HyperParameters()
 ddpm_train(params)

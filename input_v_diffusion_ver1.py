@@ -287,8 +287,8 @@ class HyperParameters:
     output_path: str = "input_v_0505_ver14_to_20" #出力先のフォルダ名
     #output_path: str = "input_v_0504_complicated_flow_to_20_add_relu_under_vy_0.8" #出力先のフォルダ名
     message: str = "ver14を学習．速度の範囲を増やしてる" #学習内容
-    file_path: str = "train_data_ver14" #推定に使うデータのフォルダ
-    train_file_path = "" #学習データのフォルダ
+    file_path: str = "train_data_ver14_test" #推定に使うデータのフォルダ
+    train_file_path = "train_data_ver14" #学習データのフォルダ
     train_path: str = f"../{train_file_path}/Time=20" #学習データ
     train_eval_path: str  = f"../{train_file_path}/Time=20" #学習データの正解ラベル
     test_path: str = f"../{file_path}/Time=20" #推定に使うデータ
@@ -298,7 +298,7 @@ class HyperParameters:
     #ハイパーパラメーター
     cut_size: int = 300000 #訓練データのサイズ(実際には10%はテストデータとして使う。全て使う時は大きい数を指定)
     save_interval: int = 50 #何エポックごとにモデルを保存するか
-    learning = 0 #1で学習を行う,0で学習を行わずに推定のみを行う
+    learning = 1 #1で学習を行う,0で学習を行わずに推定のみを行う
     standard = 0 #1で標準化を行う,0で行わない
     epochs: int = 500 #エポック数
     width: int = 32 #画像の幅
@@ -310,7 +310,7 @@ class HyperParameters:
     rate = 0.1 #訓練データとテストデータの割合(前処理が終わっているデータの何割をテストデータとして使うか)
     cut = 0.5 #cut以下の速度の値を0にする(学習を簡単にするために一定以下の速度を切り落とす,切り落とさない時は0を指定,0,5ぐらいで対象以外の部分を除ける)
 
-    byepoch = True #学習途中のファイルで推定するならTrue
+    byepoch = False #学習途中のファイルで推定するならTrue
     target_epoch: int = 250 #どのエポックのモデルを使って推定するか
     weight_eval_path_byepoch = f"../result/{output_path}/weight_{output_path}_epoch={target_epoch}.pth" #学習済みモデルの名前
     file_path_byepoch: str = f"{file_path}_epoch_{target_epoch}" #推定に使うデータのフォルダ
